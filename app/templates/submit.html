@@ -1,0 +1,48 @@
+
+{% extends "base.html" %}
+
+{% block title %}Submit Suggestion{% endblock %}
+
+{% block content %}
+
+<section class="form-container">
+
+    <h2>Submit Your Suggestion</h2>
+
+    <form action="/submit" method="POST">
+
+        <label for="name">Your Name</label>
+        <input
+            type="text"
+            id="name"
+            name="name"
+            placeholder="Enter your name"
+            required
+        >
+
+        <label for="category">Suggestion Category</label>
+        <select id="category" name="category" required>
+            <option value="">Select Category</option>
+            <option value="Roads">Roads</option>
+            <option value="Water">Water Supply</option>
+            <option value="Sanitation">Sanitation</option>
+            <option value="Electricity">Electricity</option>
+            <option value="Other">Other</option>
+        </select>
+
+        <label for="description">Your Suggestion</label>
+        <textarea
+            id="description"
+            name="description"
+            placeholder="Describe your suggestion"
+            rows="5"
+            required
+        ></textarea>
+
+        <button type="submit">Submit Suggestion</button>
+
+    </form>
+
+</section>
+
+{% endblock %}
