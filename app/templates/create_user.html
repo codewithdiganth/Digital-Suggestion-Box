@@ -1,0 +1,67 @@
+
+{% extends "base.html" %}
+
+{% block title %}Create User{% endblock %}
+
+{% block content %}
+
+<section class="form-container">
+
+    <h2>Create New User</h2>
+
+    <form method="POST" action="{{ url_for('create_user') }}">
+
+        <input
+            type="hidden"
+            name="csrf_token"
+            value="{{ csrf_token() }}"
+        >
+
+        <label for="username">Username</label>
+        <input
+            type="text"
+            id="username"
+            name="username"
+            placeholder="Enter username"
+            maxlength="80"
+            required
+        >
+
+        <label for="role">User Role</label>
+        <select id="role" name="role" required>
+            <option value="">Select Role</option>
+            <option value="admin">Admin</option>
+            <option value="staff">Staff</option>
+        </select>
+
+        <label for="password">Temporary Password</label>
+        <input
+            type="password"
+            id="password"
+            name="password"
+            minlength="8"
+            placeholder="Enter temporary password"
+            required
+        >
+
+        <label for="confirm_password">Confirm Password</label>
+        <input
+            type="password"
+            id="confirm_password"
+            name="confirm_password"
+            minlength="8"
+            placeholder="Confirm temporary password"
+            required
+        >
+
+        <button type="submit">Create User</button>
+
+    </form>
+
+    <p>
+        <a href="{{ url_for('manage_users') }}">Back to Manage Users</a>
+    </p>
+
+</section>
+
+{% endblock %}

@@ -1,5 +1,6 @@
 
 import os
+from datetime import timedelta
 from dotenv import load_dotenv
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -17,3 +18,15 @@ class Config:
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
+    # Session security
+    PERMANENT_SESSION_LIFETIME = timedelta(minutes=30)
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_SECURE = os.environ.get(
+        "SESSION_COOKIE_SECURE", "False"
+    ).lower() == "true"
+
+    # Remember-login protection
+    REMEMBER_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_SAMESITE = "Lax"
+    REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE

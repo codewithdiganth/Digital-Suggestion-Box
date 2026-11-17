@@ -1,0 +1,120 @@
+
+{% extends "base.html" %}
+
+{% block title %}Manage Suggestions{% endblock %}
+
+{% block content %}
+
+<section class="form-container">
+
+    <h2>Manage Suggestions</h2>
+
+    <form method="GET" action="{{ url_for('manage_suggestions') }}">
+
+        <label for="search">Search Suggestions</label>
+        <input
+            type="text"
+            id="search"
+            name="search"
+            placeholder="Tracking ID, name or description"
+            value="{{ search }}"
+        >
+
+        <label for="status">Filter by Status</label>
+        <select id="status" name="status">
+            <option value="">All Statuses</option>
+            <option value="Received"
+                {% if selected_status == "Received" %}selected{% endif %}>
+                Received
+            </option>
+            <option value="In Progress"
+                {% if selected_status == "In Progress" %}selected{% endif %}>
+                In Progress
+            </option>
+            <option value="Solved"
+                {% if selected_status == "Solved" %}selected{% endif %}>
+                Solved
+            </option>
+        </select>
+
+        <label for="category">Filter by Category</label>
+        <select id="category" name="category">
+            <option value="">All Categories</option>
+            {% for item in categories %}
+                <option value="{{ item }}"
+                    {% if selected_category == item %}selected{% endif %}>
+                    {{ item }}
+                </option>
+            {% endfor %}
+        </select>
+
+        <label for="ward">Filter by Ward</label>
+        <select id="ward" name="ward">
+            <option value="">All Wards</option>
+            {% for item in wards %}
+                <option value="{{ item }}"
+                    {% if selected_ward == item %}selected{% endif %}>
+                    {{ item }}
+                </option>
+            {% endfor %}
+        </select>
+
+        <button type="submit">Apply Filters</button>
+
+        <a href="{{ url_for('manage_suggestions') }}">Clear Filters</a>
+
+    </form>
+
+    <hr>
+
+    <h3>Suggestions ({{ suggestions|length }})</h3>
+
+    {% if suggestions %}
+
+        <div style="overflow-x: auto;">
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Tracking ID</th>
+                        <th>Citizen Name</th>
+                        <th>Category</th>
+                        <th>Ward</th>
+                        <th>Status</th>
+                        <th>Date Submitted</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for suggestion in suggestions %}
+                        <tr>
+                            <td>{{ suggestion.tracking_id }}</td>
+                            <td>{{ suggestion.name }}</td>
+                            <td>{{ suggestion.category }}</td>
+                            <td>{{ suggestion.ward or "Not provided" }}</td>
+                            <td>{{ suggestion.status }}</td>
+                            <td>
+                                {{ suggestion.created_at.strftime("%d-%m-%Y") }}
+                            </td>
+                            <td>
+                                <a href="{{ url_for('suggestion_detail', suggestion_id=suggestion.id) }}">
+                                    View Details
+                                </a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+        </div>
+
+    {% else %}
+
+        <p>No suggestions found.</p>
+
+    {% endif %}
+
+</section>
+
+{% endblock %}

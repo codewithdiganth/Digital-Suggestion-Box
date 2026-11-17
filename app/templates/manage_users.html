@@ -1,0 +1,93 @@
+
+{% extends "base.html" %}
+
+{% block title %}Manage Users{% endblock %}
+
+{% block content %}
+
+<section class="form-container">
+
+    <h2>Manage Users</h2>
+
+    <p>View and manage administrator and staff accounts.</p>
+
+    <p>
+        <a href="{{ url_for('create_user') }}">Create New User</a>
+    </p>
+
+    {% if users %}
+
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Username</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td>{{ user.id }}</td>
+                <td>{{ user.username }}</td>
+                <td>{{ user.role }}</td>
+
+                <td>
+                    {% if user.is_active %}
+                        Active
+                    {% else %}
+                        Inactive
+                    {% endif %}
+                </td>
+
+                <td>{{ user.created_at.strftime("%d-%m-%Y") }}</td>
+
+                <td>
+                    {% if user.id != current_user.id %}
+
+                    <form method="POST"
+                          action="{{ url_for('toggle_user', user_id=user.id) }}">
+
+                        <input type="hidden"
+                               name="csrf_token"
+                               value="{{ csrf_token() }}">
+
+                        <button type="submit">
+                            {% if user.is_active %}
+                                Deactivate
+                            {% else %}
+                                Reactivate
+                            {% endif %}
+                        </button>
+                    </form>
+
+                    <form method="POST"
+                          action="{{ url_for('reset_user_password', user_id=user.id) }}">
+
+                        <input type="hidden"
+                               name="csrf_token"
+                               value="{{ csrf_token() }}">
+
+                        <button type="submit">Reset Password</button>
+                    </form>
+
+                    {% else %}
+                        <span>Current Account</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {% else %}
+        <p>No users found.</p>
+    {% endif %}
+
+</section>
+
+{% endblock %}
