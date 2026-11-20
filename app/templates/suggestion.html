@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Suggestion Details{% endblock %}
+
+{% block content %}
+
+<section class="form-container">
+
+    <h2>Suggestion Details</h2>
+
+    <p><strong>Tracking ID:</strong> {{ suggestion.tracking_id }}</p>
+    <p><strong>Citizen Name:</strong> {{ suggestion.name }}</p>
+    <p><strong>Category:</strong> {{ suggestion.category }}</p>
+    <p><strong>Ward:</strong> {{ suggestion.ward or "Not provided" }}</p>
+    <p><strong>Current Status:</strong> {{ suggestion.status }}</p>
+
+    <p>
+        <strong>Date Submitted:</strong>
+        {{ suggestion.created_at.strftime("%d-%m-%Y %I:%M %p") }}
+    </p>
+
+    <hr>
+
+    <h3>Description</h3>
+    <p>{{ suggestion.description }}</p>
+
+    <hr>
+
+    <h3>Update Suggestion</h3>
+
+    <form
+        method="POST"
+        action="{{ url_for('update_suggestion', suggestion_id=suggestion.id) }}"
+    >
+
+        <input
+            type="hidden"
+            name="csrf_token"
+            value="{{ csrf_token() }}"
+        >
+
+        <label for="status">Update Status</label>
+
+        <select id="status" name="status" required>
+
+            <option value="Received"
+                {% if suggestion.status == "Received" %}selected{% endif %}>
+                Received
+            </option>
+
+            <option value="In Progress"
+                {% if suggestion.status == "In Progress" %}selected{% endif %}>
+                In Progress
+            </option>
+
+            <option value="Solved"
+                {% if suggestion.status == "Solved" %}selected{% endif %}>
+                Solved
+            </option>
+
+        </select>
+
+        <label for="officer_remark">Officer's Remark</label>
+
+        <textarea
+            id="officer_remark"
+            name="officer_remark"
+            rows="5"
+            placeholder="Enter an update for the citizen"
+        >{{ suggestion.officer_remark or "" }}</textarea>
+
+        <button type="submit">Save Changes</button>
+
+    </form>
+
+    <hr>
+
+    <h3>Current Officer's Remark</h3>
+
+    <p>{{ suggestion.officer_remark or "No remark added yet." }}</p>
+
+    <a href="{{ url_for('manage_suggestions') }}">
+        Back to Suggestions
+    </a>
+
+</section>
+
+{% endblock %}

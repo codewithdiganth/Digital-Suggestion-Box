@@ -2,10 +2,11 @@
 from datetime import datetime, timedelta
 from functools import wraps
 import secrets
+import uuid
 
 from flask import (
     render_template, request, redirect, url_for,
-    flash, session, abort
+    flash, session, abort, make_response
 )
 from flask_login import (
     login_user, logout_user, login_required, current_user
@@ -76,6 +77,33 @@ def register_routes(app):
             return redirect(url_for("home"))
 
         return render_template("submit.html")
+
+    # ---------------- TRACK SUGGESTION ----------------
+
+    @app.route("/track")
+    def track_suggestion():
+        tracking_id = request.args.get("tracking_id", "").strip()
+        suggestion = None
+        error = None
+
+        if tracking_id:
+            try:
+                tracking_id = str(uuid.UUID(tracking_id))
+            except ValueError:
+                error = "Enter a valid tracking ID."
+            else:
+                suggestion = Suggestion.query.filter_by(
+                    tracking_id=tracking_id
+                ).first()
+                if suggestion is None:
+                    error = "No suggestion was found with that tracking ID."
+
+        return render_template(
+            "track.html",
+            tracking_id=tracking_id,
+            suggestion=suggestion,
+            error=error
+        )
 
     # ---------------- LOGIN ----------------
 
@@ -187,6 +215,42 @@ def register_routes(app):
 
             if request.endpoint not in allowed_endpoints:
                 return redirect(url_for("change_password"))
+
+    # ---------------- STAFF DASHBOARD ----------------
+
+    @app.route("/dashboard")
+    @staff_required
+    def dashboard():
+        status_counts = dict(
+            db.session.query(Suggestion.status, db.func.count(Suggestion.id))
+            .group_by(Suggestion.status)
+            .all()
+        )
+        statuses = ["Received", "In Progress", "Solved"]
+        statuses.extend(
+            status for status in status_counts if status not in statuses
+        )
+        status_counts = {
+            status: status_counts.get(status, 0)
+            for status in statuses
+        }
+
+        category_counts = (
+            db.session.query(
+                Suggestion.category,
+                db.func.count(Suggestion.id)
+            )
+            .group_by(Suggestion.category)
+            .order_by(Suggestion.category)
+            .all()
+        )
+
+        return render_template(
+            "dashboard.html",
+            total_suggestions=sum(status_counts.values()),
+            status_counts=status_counts,
+            category_counts=category_counts
+        )
 
     # ---------------- SUGGESTION MANAGEMENT ----------------
 
@@ -320,6 +384,23 @@ def register_routes(app):
             "suggestion_detail",
             suggestion_id=suggestion_id
         ))
+
+    # ---------------- ACTIVITY LOG ----------------
+
+    @app.route("/admin/activity")
+    @admin_required
+    def activity_log():
+        activity_entries = (
+            db.session.query(ActivityLog, User.username)
+            .outerjoin(User, ActivityLog.user_id == User.id)
+            .order_by(ActivityLog.created_at.desc(), ActivityLog.id.desc())
+            .all()
+        )
+
+        return render_template(
+            "activity_log.html",
+            activity_entries=activity_entries
+        )
 
     # ---------------- USER MANAGEMENT ----------------
 
@@ -470,28 +551,22 @@ def register_routes(app):
         db.session.add(log)
         db.session.commit()
 
-        session["reset_password_result"] = temporary_password
-
-        return redirect(url_for("show_reset_password"))
+        response = make_response(render_template(
+            "reset_password_result.html",
+            username=user.username,
+            temporary_password=temporary_password
+        ))
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+        return response
 
     # ---------------- SHOW TEMPORARY PASSWORD ----------------
 
     @app.route("/admin/users/reset-password-result")
     @admin_required
     def show_reset_password():
-        temporary_password = session.pop(
-            "reset_password_result",
-            None
+        flash(
+            "Temporary passwords are displayed only once, immediately after a reset.",
+            "error"
         )
-
-        if not temporary_password:
-            flash(
-                "No temporary password is available.",
-                "error"
-            )
-            return redirect(url_for("manage_users"))
-
-        return render_template(
-            "reset_password_result.html",
-            temporary_password=temporary_password
-        )
+        return redirect(url_for("manage_users"))

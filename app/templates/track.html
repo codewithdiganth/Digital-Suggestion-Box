@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Track Suggestion{% endblock %}
+
+{% block content %}
+
+<section class="form-container">
+
+    <h2>Track Your Suggestion</h2>
+    <p>Enter the tracking ID you received after submitting your suggestion.</p>
+
+    <form method="GET" action="{{ url_for('track_suggestion') }}">
+        <label for="tracking_id">Tracking ID</label>
+        <input
+            type="text"
+            id="tracking_id"
+            name="tracking_id"
+            value="{{ tracking_id }}"
+            placeholder="Enter your tracking ID"
+            required
+        >
+        <button type="submit">Check Status</button>
+    </form>
+
+    {% if error %}
+        <p class="flash error" role="alert">{{ error }}</p>
+    {% endif %}
+
+    {% if suggestion %}
+        <hr>
+        <h3>Suggestion Status</h3>
+        <p><strong>Tracking ID:</strong> {{ suggestion.tracking_id }}</p>
+        <p><strong>Category:</strong> {{ suggestion.category }}</p>
+        <p><strong>Status:</strong> {{ suggestion.status }}</p>
+        <p>
+            <strong>Date Submitted:</strong>
+            {{ suggestion.created_at.strftime("%d-%m-%Y %I:%M %p") }}
+        </p>
+        <p><strong>Officer's Remark:</strong></p>
+        <p>{{ suggestion.officer_remark or "No update has been added yet." }}</p>
+    {% endif %}
+
+</section>
+
+{% endblock %}
