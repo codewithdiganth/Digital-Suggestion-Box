@@ -6,7 +6,7 @@ import uuid
 
 from flask import (
     render_template, request, redirect, url_for,
-    flash, session, abort, make_response
+    flash, session, abort, make_response, jsonify
 )
 from flask_login import (
     login_user, logout_user, login_required, current_user
@@ -15,7 +15,7 @@ from werkzeug.security import (
     check_password_hash, generate_password_hash
 )
 
-from app import db
+from app import db, csrf
 from app.models import Suggestion, User, ActivityLog
 
 
@@ -41,6 +41,21 @@ def staff_required(view_function):
 
 def register_routes(app):
 
+    def suggestion_payload(suggestion):
+        return {
+            "id": suggestion.id,
+            "tracking_id": suggestion.tracking_id,
+            "name": suggestion.name,
+            "category": suggestion.category,
+            "description": suggestion.description,
+            "status": suggestion.status,
+            "ward": suggestion.ward,
+            "officer_remark": suggestion.officer_remark,
+            "created_at": (
+                suggestion.created_at.isoformat() if suggestion.created_at else None
+            ),
+        }
+
     # ---------------- HOME ----------------
 
     @app.route("/")
@@ -54,6 +69,7 @@ def register_routes(app):
         if request.method == "POST":
             name = request.form.get("name", "").strip()
             category = request.form.get("category", "").strip()
+            ward = request.form.get("ward", "").strip()
             description = request.form.get("description", "").strip()
 
             if not name or not category or not description:
@@ -63,6 +79,7 @@ def register_routes(app):
             suggestion = Suggestion(
                 name=name,
                 category=category,
+                ward=ward or None,
                 description=description
             )
 
@@ -77,6 +94,135 @@ def register_routes(app):
             return redirect(url_for("home"))
 
         return render_template("submit.html")
+
+    # ---------------- JSON API ----------------
+
+    @app.route("/api/suggestions", methods=["POST"])
+    @csrf.exempt
+    def api_create_suggestion():
+        data = request.get_json(silent=True) or request.form
+        name = str(data.get("name", "")).strip()
+        category = str(data.get("category", "")).strip()
+        ward = str(data.get("ward", "")).strip()
+        description = str(data.get("description", "")).strip()
+
+        if not name or not category or not description:
+            return jsonify({
+                "error": "name, category, and description are required"
+            }), 400
+        if len(name) > 100 or len(category) > 100 or len(ward) > 100:
+            return jsonify({"error": "Submitted fields exceed the maximum length"}), 400
+
+        suggestion = Suggestion(
+            name=name,
+            category=category,
+            ward=ward or None,
+            description=description
+        )
+        db.session.add(suggestion)
+        db.session.commit()
+
+        return jsonify({
+            "message": "Suggestion submitted successfully",
+            "suggestion": suggestion_payload(suggestion),
+        }), 201
+
+    @app.route("/api/suggestions", methods=["GET"])
+    @staff_required
+    def api_list_suggestions():
+        status = request.args.get("status", "").strip()
+        category = request.args.get("category", "").strip()
+        ward = request.args.get("ward", "").strip()
+        query = Suggestion.query
+        if status:
+            query = query.filter(Suggestion.status == status)
+        if category:
+            query = query.filter(Suggestion.category == category)
+        if ward:
+            query = query.filter(Suggestion.ward == ward)
+
+        suggestions = query.order_by(Suggestion.created_at.desc()).all()
+        return jsonify({
+            "count": len(suggestions),
+            "suggestions": [suggestion_payload(item) for item in suggestions],
+        })
+
+    @app.route("/api/suggestions/<tracking_id>", methods=["GET"])
+    def api_track_suggestion(tracking_id):
+        try:
+            normalized_id = str(uuid.UUID(tracking_id))
+        except (ValueError, AttributeError):
+            return jsonify({"error": "Enter a valid tracking ID"}), 400
+
+        suggestion = Suggestion.query.filter_by(tracking_id=normalized_id).first()
+        if suggestion is None:
+            return jsonify({"error": "Suggestion not found"}), 404
+        return jsonify({"suggestion": suggestion_payload(suggestion)})
+
+    @app.route("/api/suggestions/<int:suggestion_id>", methods=["PATCH"])
+    @csrf.exempt
+    @staff_required
+    def api_update_suggestion(suggestion_id):
+        suggestion = db.session.get(Suggestion, suggestion_id)
+        if suggestion is None:
+            return jsonify({"error": "Suggestion not found"}), 404
+
+        data = request.get_json(silent=True) or {}
+        status = str(data.get("status", "")).strip()
+        remark = data.get("officer_remark")
+        allowed_statuses = ["Received", "In Progress", "Solved"]
+        if status not in allowed_statuses:
+            return jsonify({"error": "status must be Received, In Progress, or Solved"}), 400
+
+        old_status = suggestion.status
+        suggestion.status = status
+        if remark is not None:
+            suggestion.officer_remark = str(remark).strip()
+
+        db.session.add(ActivityLog(
+            user_id=current_user.id,
+            action="Suggestion Updated",
+            details=(
+                f"Tracking ID: {suggestion.tracking_id}; "
+                f"Status changed from {old_status} to {status}"
+            )
+        ))
+        db.session.commit()
+        return jsonify({"message": "Suggestion updated", "suggestion": suggestion_payload(suggestion)})
+
+    @app.route("/api/suggestions/<tracking_id>", methods=["PATCH"])
+    @csrf.exempt
+    @staff_required
+    def api_update_suggestion_by_tracking_id(tracking_id):
+        try:
+            normalized_id = str(uuid.UUID(tracking_id))
+        except (ValueError, AttributeError):
+            return jsonify({"error": "Enter a valid tracking ID"}), 400
+
+        suggestion = Suggestion.query.filter_by(tracking_id=normalized_id).first()
+        if suggestion is None:
+            return jsonify({"error": "Suggestion not found"}), 404
+
+        data = request.get_json(silent=True) or {}
+        status = str(data.get("status", "")).strip()
+        if status not in ["Received", "In Progress", "Solved"]:
+            return jsonify({"error": "status must be Received, In Progress, or Solved"}), 400
+
+        old_status = suggestion.status
+        suggestion.status = status
+        if data.get("officer_remark") is not None:
+            suggestion.officer_remark = str(data["officer_remark"]).strip()
+
+        db.session.add(ActivityLog(
+            user_id=current_user.id,
+            action="Suggestion Updated",
+            details=(
+                f"Tracking ID: {suggestion.tracking_id}; "
+                f"Status changed from {old_status} to {status}"
+            )
+        ))
+        db.session.commit()
+        return jsonify({"message": "Suggestion updated", "suggestion": suggestion_payload(suggestion)})
 
     # ---------------- TRACK SUGGESTION ----------------
 

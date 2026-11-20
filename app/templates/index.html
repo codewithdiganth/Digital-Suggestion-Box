@@ -4,31 +4,58 @@
 {% block title %}Home - Digital Suggestion Box{% endblock %}
 
 {% block content %}
-
 <section class="hero">
-    <h2>Welcome to Digital Suggestion Box</h2>
-
-    <p>
-        Share your ideas and suggestions to improve
-        your local community and governance.
-    </p>
-
-    <a href="/submit" class="btn">
-        Submit Your Suggestion
-    </a>
-    <a href="{{ url_for('track_suggestion') }}" class="btn">
-        Track a Suggestion
-    </a>
+    <div class="hero-copy">
+        <span class="eyebrow">Community participation</span>
+        <h1>Your voice can shape <em>better places.</em></h1>
+        <p>Share an idea, report a local concern, or suggest an improvement. Every contribution creates a trackable response.</p>
+        <div class="hero-actions">
+            <a href="{{ url_for('submit') }}" class="btn btn-primary">Share a suggestion <span>→</span></a>
+            <a href="{{ url_for('track_suggestion') }}" class="btn btn-secondary">Track progress</a>
+        </div>
+    </div>
+    <div class="hero-visual" aria-hidden="true">
+        <div class="orbit orbit-one"></div>
+        <div class="orbit orbit-two"></div>
+        <div class="voice-card">
+            <span class="voice-icon">✦</span>
+            <span class="voice-label">Community update</span>
+            <strong>What should we improve next?</strong>
+            <div class="voice-progress"><span></span></div>
+            <small>Ideas turn into action</small>
+        </div>
+    </div>
 </section>
 
-<section class="features">
-    <h2>Our Purpose</h2>
-
-    <p>
-        We provide a simple platform for citizens to
-        communicate their ideas, problems, and suggestions
-        to local authorities.
-    </p>
+<section class="process-section">
+    <div class="section-heading">
+        <span class="eyebrow">Simple and transparent</span>
+        <h2>From idea to impact</h2>
+    </div>
+    <div class="process-grid">
+        <article class="process-card">
+            <span class="step-number">01</span>
+            <div class="process-icon">↗</div>
+            <h3>Submit your idea</h3>
+            <p>Tell us what could work better in your community.</p>
+        </article>
+        <article class="process-card">
+            <span class="step-number">02</span>
+            <div class="process-icon">◎</div>
+            <h3>We review it</h3>
+            <p>Local staff assess the suggestion and assign an update.</p>
+        </article>
+        <article class="process-card">
+            <span class="step-number">03</span>
+            <div class="process-icon">✓</div>
+            <h3>Track the outcome</h3>
+            <p>Follow every stage using your private tracking ID.</p>
+        </article>
+    </div>
 </section>
 
+<section class="purpose-strip">
+    <p>“Small ideas become stronger communities when they are heard.”</p>
+    <a href="{{ url_for('submit') }}" class="text-link">Add your voice <span>→</span></a>
+</section>
 {% endblock %}
