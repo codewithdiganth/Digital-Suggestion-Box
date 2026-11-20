@@ -19,6 +19,12 @@ def create_app():
     app.config.from_object(Config)
 
     os.makedirs(app.instance_path, exist_ok=True)
+    app.config.setdefault(
+        "UPLOAD_FOLDER",
+        os.path.join(app.instance_path, "uploads")
+    )
+    app.config.setdefault("MAX_CONTENT_LENGTH", 5 * 1024 * 1024)
+    os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
     db.init_app(app)
     migrate.init_app(app, db)

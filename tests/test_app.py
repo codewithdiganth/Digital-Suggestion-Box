@@ -1,6 +1,7 @@
 import os
 import re
 import unittest
+import io
 
 os.environ["DATABASE_URL"] = "sqlite://"
 
@@ -77,6 +78,7 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
                 "name": "Another Citizen",
                 "category": "Water",
                 "description": "Improve water supply.",
+                "photo": (io.BytesIO(b"not-real-image-data"), "water.jpg"),
             },
             follow_redirects=True,
         )
@@ -87,10 +89,7 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
             submitted = Suggestion.query.filter_by(
                 name="Another Citizen"
             ).one()
-            self.assertTrue(re.fullmatch(
-                r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
-                submitted.tracking_id,
-            ))
+            self.assertTrue(re.fullmatch(r"[0-9]{8}", submitted.tracking_id))
 
         tracked = self.client.get(
             "/track",

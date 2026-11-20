@@ -13,7 +13,7 @@
         <form method="GET" action="{{ url_for('track_suggestion') }}" class="modern-form">
             <div class="field">
                 <label for="tracking_id">Tracking ID</label>
-                <input type="text" id="tracking_id" name="tracking_id" value="{{ tracking_id }}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" required>
+                <input type="text" id="tracking_id" name="tracking_id" value="{{ tracking_id }}" placeholder="Enter 8-digit ID" inputmode="numeric" pattern="[0-9]{8}" required>
             </div>
             <button type="submit" class="btn btn-primary btn-full">Check status <span>→</span></button>
         </form>
@@ -44,6 +44,14 @@
                 <span>Latest update</span>
                 <p>{{ suggestion.officer_remark or "No update has been added yet." }}</p>
             </div>
+            {% if suggestion.photo_filename %}
+            <div class="suggestion-photo">
+                <span>Attached photo</span>
+                <a href="{{ url_for('uploaded_photo', filename=suggestion.photo_filename) }}" target="_blank" rel="noopener">
+                    <img src="{{ url_for('uploaded_photo', filename=suggestion.photo_filename) }}" alt="Photo attached to suggestion">
+                </a>
+            </div>
+            {% endif %}
         </div>
     {% endif %}
 </section>

@@ -11,7 +11,7 @@
 </div>
 <section class="form-layout">
     <div class="form-card">
-        <form action="{{ url_for('submit') }}" method="POST" class="modern-form">
+        <form action="{{ url_for('submit') }}" method="POST" enctype="multipart/form-data" class="modern-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-grid">
                 <div class="field">
@@ -38,6 +38,10 @@
             <div class="field">
                 <label for="description">Tell us more</label>
                 <textarea id="description" name="description" placeholder="Describe the issue or idea clearly..." rows="7" required></textarea>
+            </div>
+            <div class="field">
+                <label for="photo">Add a photo <span>Optional</span></label>
+                <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/webp">
             </div>
             <button type="submit" class="btn btn-primary btn-full">Submit suggestion <span>→</span></button>
         </form>

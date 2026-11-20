@@ -2,11 +2,14 @@
 from datetime import datetime, timedelta
 from functools import wraps
 import secrets
+import os
+import re
 import uuid
 
 from flask import (
     render_template, request, redirect, url_for,
-    flash, session, abort, make_response, jsonify
+    flash, session, abort, make_response, jsonify, send_from_directory,
+    current_app
 )
 from flask_login import (
     login_user, logout_user, login_required, current_user
@@ -14,9 +17,44 @@ from flask_login import (
 from werkzeug.security import (
     check_password_hash, generate_password_hash
 )
+from werkzeug.utils import secure_filename
 
 from app import db, csrf
 from app.models import Suggestion, User, ActivityLog
+
+
+ALLOWED_PHOTO_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
+
+
+def generate_tracking_id():
+    while True:
+        tracking_id = f"{secrets.randbelow(100_000_000):08d}"
+        if Suggestion.query.filter_by(tracking_id=tracking_id).first() is None:
+            return tracking_id
+
+
+def normalize_tracking_id(tracking_id):
+    tracking_id = tracking_id.strip()
+    if re.fullmatch(r"\d{8}", tracking_id):
+        return tracking_id
+    try:
+        return str(uuid.UUID(tracking_id))
+    except (ValueError, AttributeError):
+        return None
+
+
+def save_suggestion_photo(upload):
+    if not upload or not upload.filename:
+        return None
+
+    filename = secure_filename(upload.filename)
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if extension not in ALLOWED_PHOTO_EXTENSIONS:
+        raise ValueError("Please upload a JPG, PNG, or WebP image.")
+
+    stored_name = f"{secrets.token_hex(16)}.{extension}"
+    upload.save(os.path.join(current_app.config["UPLOAD_FOLDER"], stored_name))
+    return stored_name
 
 
 def admin_required(view_function):
@@ -51,10 +89,21 @@ def register_routes(app):
             "status": suggestion.status,
             "ward": suggestion.ward,
             "officer_remark": suggestion.officer_remark,
+            "photo_url": (
+                url_for("uploaded_photo", filename=suggestion.photo_filename)
+                if suggestion.photo_filename else None
+            ),
             "created_at": (
                 suggestion.created_at.isoformat() if suggestion.created_at else None
             ),
         }
+
+    @app.route("/uploads/<path:filename>")
+    def uploaded_photo(filename):
+        return send_from_directory(
+            current_app.config["UPLOAD_FOLDER"],
+            filename
+        )
 
     # ---------------- HOME ----------------
 
@@ -76,11 +125,19 @@ def register_routes(app):
                 flash("Please fill in all fields.", "error")
                 return redirect(url_for("submit"))
 
+            try:
+                photo_filename = save_suggestion_photo(request.files.get("photo"))
+            except ValueError as error:
+                flash(str(error), "error")
+                return redirect(url_for("submit"))
+
             suggestion = Suggestion(
                 name=name,
                 category=category,
                 ward=ward or None,
-                description=description
+                description=description,
+                tracking_id=generate_tracking_id(),
+                photo_filename=photo_filename
             )
 
             db.session.add(suggestion)
@@ -113,11 +170,18 @@ def register_routes(app):
         if len(name) > 100 or len(category) > 100 or len(ward) > 100:
             return jsonify({"error": "Submitted fields exceed the maximum length"}), 400
 
+        try:
+            photo_filename = save_suggestion_photo(request.files.get("photo"))
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+
         suggestion = Suggestion(
             name=name,
             category=category,
             ward=ward or None,
-            description=description
+            description=description,
+            tracking_id=generate_tracking_id(),
+            photo_filename=photo_filename
         )
         db.session.add(suggestion)
         db.session.commit()
@@ -149,9 +213,8 @@ def register_routes(app):
 
     @app.route("/api/suggestions/<tracking_id>", methods=["GET"])
     def api_track_suggestion(tracking_id):
-        try:
-            normalized_id = str(uuid.UUID(tracking_id))
-        except (ValueError, AttributeError):
+        normalized_id = normalize_tracking_id(tracking_id)
+        if normalized_id is None:
             return jsonify({"error": "Enter a valid tracking ID"}), 400
 
         suggestion = Suggestion.query.filter_by(tracking_id=normalized_id).first()
@@ -194,9 +257,8 @@ def register_routes(app):
     @csrf.exempt
     @staff_required
     def api_update_suggestion_by_tracking_id(tracking_id):
-        try:
-            normalized_id = str(uuid.UUID(tracking_id))
-        except (ValueError, AttributeError):
+        normalized_id = normalize_tracking_id(tracking_id)
+        if normalized_id is None:
             return jsonify({"error": "Enter a valid tracking ID"}), 400
 
         suggestion = Suggestion.query.filter_by(tracking_id=normalized_id).first()
@@ -233,9 +295,8 @@ def register_routes(app):
         error = None
 
         if tracking_id:
-            try:
-                tracking_id = str(uuid.UUID(tracking_id))
-            except ValueError:
+            tracking_id = normalize_tracking_id(tracking_id)
+            if tracking_id is None:
                 error = "Enter a valid tracking ID."
             else:
                 suggestion = Suggestion.query.filter_by(

@@ -24,6 +24,14 @@
     <h3>Description</h3>
     <p>{{ suggestion.description }}</p>
 
+    {% if suggestion.photo_filename %}
+    <hr>
+    <h3>Attached Photo</h3>
+    <a href="{{ url_for('uploaded_photo', filename=suggestion.photo_filename) }}" target="_blank" rel="noopener">
+        <img class="detail-photo" src="{{ url_for('uploaded_photo', filename=suggestion.photo_filename) }}" alt="Photo attached to suggestion">
+    </a>
+    {% endif %}
+
     <hr>
 
     <h3>Update Suggestion</h3>

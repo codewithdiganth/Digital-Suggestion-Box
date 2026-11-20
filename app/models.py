@@ -1,7 +1,7 @@
 
 from app import db
 from datetime import datetime
-import uuid
+import secrets
 from flask_login import UserMixin
 
 
@@ -9,10 +9,10 @@ class Suggestion(db.Model):
     id = db.Column(db.Integer, primary_key=True)
 
     tracking_id = db.Column(
-        db.String(36),
+        db.String(8),
         unique=True,
         nullable=False,
-        default=lambda: str(uuid.uuid4())
+        default=lambda: f"{secrets.randbelow(100_000_000):08d}"
     )
 
     name = db.Column(db.String(100), nullable=False)
@@ -27,6 +27,7 @@ class Suggestion(db.Model):
 
     ward = db.Column(db.String(100), nullable=True)
     officer_remark = db.Column(db.Text, nullable=True)
+    photo_filename = db.Column(db.String(255), nullable=True)
 
     created_at = db.Column(
         db.DateTime,
