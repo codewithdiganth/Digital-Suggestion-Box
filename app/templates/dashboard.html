@@ -3,55 +3,146 @@
 {% block title %}Staff Dashboard{% endblock %}
 
 {% block content %}
-
-<section class="form-container">
-    <h2>Suggestion Dashboard</h2>
-    <p>Total suggestions: <strong>{{ total_suggestions }}</strong></p>
-
-    <h3>Suggestions by Status</h3>
-    <div style="overflow-x: auto;">
-        <table>
-            <thead>
-                <tr>
-                    <th>Status</th>
-                    <th>Count</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for status, count in status_counts.items() %}
-                    <tr>
-                        <td>{{ status }}</td>
-                        <td>{{ count }}</td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+<div class="dashboard-header">
+    <div>
+        <span class="eyebrow">Operations overview</span>
+        <h1>Suggestion Dashboard</h1>
     </div>
+    <a class="btn btn-primary" href="{{ url_for('manage_suggestions') }}">View suggestions <span>→</span></a>
+</div>
+
+<p>Total suggestions: <strong>{{ total_suggestions }}</strong></p>
+<section class="stat-grid" aria-label="Suggestion totals">
+    <article class="stat-card">
+        <span class="stat-icon">#</span>
+        <p>Total suggestions</p>
+        <strong>{{ total_suggestions }}</strong>
+    </article>
+    {% for status, count in status_counts.items() %}
+    <article class="stat-card">
+        <span class="stat-icon">●</span>
+        <p>{{ status }}</p>
+        <strong>{{ count }}</strong>
+    </article>
+    {% endfor %}
+    <article class="stat-card high-priority-card">
+        <span class="stat-icon">!</span>
+        <p>High-priority AI</p>
+        <strong>{{ high_priority_count }}</strong>
+    </article>
 </section>
 
-<section class="form-container">
-    <h3>Suggestions by Category</h3>
-    {% if category_counts %}
-        <div style="overflow-x: auto;">
-            <table>
+<section class="dashboard-grid">
+    <article class="form-container analytics-card">
+        <div class="panel-heading">
+            <div>
+                <span class="eyebrow">Status summary</span>
+                <h2>Suggestions by status</h2>
+            </div>
+        </div>
+        <div class="status-bars">
+            {% for status, count in status_counts.items() %}
+                {% set percentage = (count * 100 // total_suggestions) if total_suggestions else 0 %}
+                <div class="status-bar-row">
+                    <div><span>{{ status }}</span><strong>{{ count }}</strong></div>
+                    <div class="progress-track"><span style="width: {{ percentage }}%"></span></div>
+                </div>
+            {% endfor %}
+        </div>
+    </article>
+
+    <article class="form-container analytics-card">
+        <div class="panel-heading">
+            <div>
+                <span class="eyebrow">Category summary</span>
+                <h2>Suggestions by category</h2>
+            </div>
+        </div>
+        {% if category_counts %}
+            <div class="bar-chart" role="img" aria-label="Suggestions by category">
+                {% for category, count in category_counts %}
+                    {% set bar_width = (count * 100 // category_max) if category_max else 0 %}
+                    <div class="chart-bar-row">
+                        <div><span>{{ category }}</span><strong>{{ count }}</strong></div>
+                        <div class="chart-bar-track"><span style="width: {{ bar_width }}%"></span></div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="empty-state">No suggestions have been submitted yet.</p>
+        {% endif %}
+    </article>
+</section>
+
+<section class="dashboard-grid">
+    <article class="form-container analytics-card">
+        <div class="panel-heading">
+            <div>
+                <span class="eyebrow">Ward summary</span>
+                <h2>Suggestions by ward</h2>
+            </div>
+        </div>
+        {% if ward_counts %}
+            <div class="bar-chart" role="img" aria-label="Suggestions by ward">
+                {% for ward, count in ward_counts %}
+                    {% set bar_width = (count * 100 // ward_max) if ward_max else 0 %}
+                    <div class="chart-bar-row">
+                        <div><span>{{ ward }}</span><strong>{{ count }}</strong></div>
+                        <div class="chart-bar-track"><span style="width: {{ bar_width }}%"></span></div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="empty-state">No ward information has been submitted.</p>
+        {% endif %}
+    </article>
+
+    <article class="form-container analytics-card">
+        <div class="panel-heading">
+            <div>
+                <span class="eyebrow">AI-assisted review</span>
+                <h2>Priority summary</h2>
+            </div>
+        </div>
+        <div class="priority-chart" role="img" aria-label="AI priority distribution">
+            {% for priority, count in priority_counts.items() %}
+                <div class="priority-chart-item">
+                    <span class="priority-dot priority-dot-{{ priority|lower }}"></span>
+                    <span>{{ priority }}</span>
+                    <strong>{{ count }}</strong>
+                </div>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+
+<section class="form-container table-panel recent-activity">
+    <div class="panel-heading">
+        <div>
+            <span class="eyebrow">Latest activity</span>
+            <h2>Recent operations</h2>
+        </div>
+    </div>
+    {% if recent_activity %}
+        <div class="table-scroll">
+            <table class="modern-table">
                 <thead>
-                    <tr>
-                        <th>Category</th>
-                        <th>Count</th>
-                    </tr>
+                    <tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr>
                 </thead>
                 <tbody>
-                    {% for category, count in category_counts %}
+                    {% for log, username in recent_activity %}
                         <tr>
-                            <td>{{ category }}</td>
-                            <td>{{ count }}</td>
+                            <td>{{ log.created_at.strftime("%d %b %Y, %I:%M %p") }}</td>
+                            <td>{{ username or "Deleted user" }}</td>
+                            <td>{{ log.action }}</td>
+                            <td>{{ log.details or "No details provided." }}</td>
                         </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     {% else %}
-        <p>No suggestions have been submitted yet.</p>
+        <p class="empty-state">No operational activity has been recorded.</p>
     {% endif %}
 </section>
 

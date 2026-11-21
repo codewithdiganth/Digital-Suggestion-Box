@@ -20,6 +20,13 @@ from werkzeug.security import (
 from werkzeug.utils import secure_filename
 
 from app import db, csrf
+from app.ai_service import (
+    check_ai_rate_limit,
+    generate_chat_reply,
+    generate_suggestion_draft,
+    generate_priority_recommendation,
+    explain_tracking_status,
+)
 from app.models import Suggestion, User, ActivityLog
 
 
@@ -51,6 +58,19 @@ def save_suggestion_photo(upload):
     extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if extension not in ALLOWED_PHOTO_EXTENSIONS:
         raise ValueError("Please upload a JPG, PNG, or WebP image.")
+
+    header = upload.stream.read(12)
+    upload.stream.seek(0)
+    is_jpeg = header.startswith(b"\xff\xd8\xff")
+    is_png = header.startswith(b"\x89PNG\r\n\x1a\n")
+    is_webp = header.startswith(b"RIFF") and header[8:12] == b"WEBP"
+    valid_type = (
+        (extension in {"jpg", "jpeg"} and is_jpeg)
+        or (extension == "png" and is_png)
+        or (extension == "webp" and is_webp)
+    )
+    if not valid_type:
+        raise ValueError("The uploaded file is not a valid JPG, PNG, or WebP image.")
 
     stored_name = f"{secrets.token_hex(16)}.{extension}"
     upload.save(os.path.join(current_app.config["UPLOAD_FOLDER"], stored_name))
@@ -84,8 +104,12 @@ def register_routes(app):
             "id": suggestion.id,
             "tracking_id": suggestion.tracking_id,
             "name": suggestion.name,
+            "title": suggestion.title,
             "category": suggestion.category,
             "description": suggestion.description,
+            "ai_priority": suggestion.ai_priority,
+            "ai_priority_reason": suggestion.ai_priority_reason,
+            "ai_priority_provider": suggestion.ai_priority_provider,
             "status": suggestion.status,
             "ward": suggestion.ward,
             "officer_remark": suggestion.officer_remark,
@@ -123,14 +147,20 @@ def register_routes(app):
 
         if request.method == "POST":
             name = request.form.get("name", "").strip()
+            title = request.form.get("title", "").strip()
             category = request.form.get("category", "").strip()
             ward = request.form.get("ward", "").strip()
             description = request.form.get("description", "").strip()
 
-            if not name or not category or not description:
+            if not name or not title or not category or not description:
                 flash("Please fill in all fields.", "error")
                 return redirect(url_for("submit"))
-            if len(name) > 100 or len(category) > 100 or len(ward) > 100:
+            if (
+                len(name) > 100
+                or len(title) > 150
+                or len(category) > 100
+                or len(ward) > 100
+            ):
                 flash("One or more submitted fields are too long.", "error")
                 return redirect(url_for("submit"))
             if len(description) > 5000:
@@ -143,13 +173,18 @@ def register_routes(app):
                 flash(str(error), "error")
                 return redirect(url_for("submit"))
 
+            priority = generate_priority_recommendation(description)
             suggestion = Suggestion(
                 name=name,
+                title=title,
                 category=category,
                 ward=ward or None,
                 description=description,
                 tracking_id=generate_tracking_id(),
-                photo_filename=photo_filename
+                photo_filename=photo_filename,
+                ai_priority=priority["priority"],
+                ai_priority_reason=priority["reason"],
+                ai_priority_provider=priority["provider"],
             )
 
             db.session.add(suggestion)
@@ -179,6 +214,7 @@ def register_routes(app):
 
         data = request.get_json(silent=True) or request.form
         name = str(data.get("name", "")).strip()
+        title = str(data.get("title", "")).strip()
         category = str(data.get("category", "")).strip()
         ward = str(data.get("ward", "")).strip()
         description = str(data.get("description", "")).strip()
@@ -187,7 +223,7 @@ def register_routes(app):
             return jsonify({
                 "error": "name, category, and description are required"
             }), 400
-        if len(name) > 100 or len(category) > 100 or len(ward) > 100:
+        if len(title) > 150 or len(name) > 100 or len(category) > 100 or len(ward) > 100:
             return jsonify({"error": "Submitted fields exceed the maximum length"}), 400
 
         try:
@@ -195,13 +231,18 @@ def register_routes(app):
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
 
+        priority = generate_priority_recommendation(description)
         suggestion = Suggestion(
             name=name,
+            title=title or None,
             category=category,
             ward=ward or None,
             description=description,
             tracking_id=generate_tracking_id(),
-            photo_filename=photo_filename
+            photo_filename=photo_filename,
+            ai_priority=priority["priority"],
+            ai_priority_reason=priority["reason"],
+            ai_priority_provider=priority["provider"],
         )
         db.session.add(suggestion)
         db.session.commit()
@@ -331,6 +372,108 @@ def register_routes(app):
             suggestion=suggestion,
             error=error
         )
+
+    @app.route("/api/ai/tracking/<tracking_id>", methods=["POST"])
+    def ai_tracking_explanation(tracking_id):
+        normalized_id = normalize_tracking_id(tracking_id)
+        if normalized_id is None:
+            return jsonify({"error": "Enter a valid tracking ID"}), 400
+
+        suggestion = Suggestion.query.filter_by(tracking_id=normalized_id).first()
+        if suggestion is None:
+            return jsonify({"error": "Suggestion not found"}), 404
+
+        client_key = session.get("_ai_tracking_client")
+        if not client_key:
+            client_key = uuid.uuid4().hex
+            session["_ai_tracking_client"] = client_key
+        if not check_ai_rate_limit(
+            f"tracking:{request.remote_addr}:{client_key}",
+            limit=6,
+        ):
+            return jsonify({
+                "error": "Too many tracking explanations. Please try again later."
+            }), 429
+
+        result = explain_tracking_status(
+            suggestion.status,
+            suggestion.officer_remark,
+        )
+        return jsonify(result)
+
+    # ---------------- AI CHAT ASSISTANT ----------------
+
+    @app.route("/api/ai/chat", methods=["POST"])
+    def ai_chat():
+        data = request.get_json(silent=True) or {}
+        message = str(data.get("message", "")).strip()
+
+        if not message:
+            return jsonify({"error": "Please enter a message."}), 400
+        if len(message) > 1000:
+            return jsonify({
+                "error": "Please keep your message under 1000 characters."
+            }), 400
+
+        client_key = session.get("_ai_chat_client")
+        if not client_key:
+            client_key = uuid.uuid4().hex
+            session["_ai_chat_client"] = client_key
+        client_key = f"{request.remote_addr}:{client_key}"
+        if not check_ai_rate_limit(client_key):
+            return jsonify({
+                "error": "Too many AI requests. Please wait a minute and try again."
+            }), 429
+
+        history = session.get("ai_chat_history", [])
+        result = generate_chat_reply(message, history)
+
+        history.append({"role": "user", "text": message[:1000]})
+        history.append({"role": "assistant", "text": result["reply"][:2000]})
+        session["ai_chat_history"] = history[-20:]
+
+        return jsonify({
+            "reply": result["reply"],
+            "fallback": result["fallback"],
+            "provider": result["provider"],
+        })
+
+    @app.route("/api/ai/suggestion-draft", methods=["POST"])
+    def ai_suggestion_draft():
+        if (
+            current_user.is_authenticated
+            and current_user.role in ["admin", "staff"]
+        ):
+            return jsonify({
+                "error": "AI drafting is available only for public citizens."
+            }), 403
+
+        data = request.get_json(silent=True) or {}
+        description = str(data.get("description", "")).strip()
+        if not description:
+            return jsonify({"error": "Please describe the civic issue first."}), 400
+        if len(description) > 5000:
+            return jsonify({
+                "error": "Please keep the description under 5000 characters."
+            }), 400
+
+        client_key = session.get("_ai_draft_client")
+        if not client_key:
+            client_key = uuid.uuid4().hex
+            session["_ai_draft_client"] = client_key
+        if not check_ai_rate_limit(f"draft:{request.remote_addr}:{client_key}", limit=6):
+            return jsonify({
+                "error": "Too many AI draft requests. Please wait and try again."
+            }), 429
+
+        result = generate_suggestion_draft(description)
+        priority = generate_priority_recommendation(description)
+        result.update({
+            "priority": priority["priority"],
+            "priority_reason": priority["reason"],
+            "priority_provider": priority["provider"],
+        })
+        return jsonify(result)
 
     # ---------------- LOGIN ----------------
 
@@ -477,12 +620,48 @@ def register_routes(app):
             .order_by(Suggestion.category)
             .all()
         )
+        ward_counts = (
+            db.session.query(
+                Suggestion.ward,
+                db.func.count(Suggestion.id)
+            )
+            .filter(Suggestion.ward.isnot(None))
+            .filter(Suggestion.ward != "")
+            .group_by(Suggestion.ward)
+            .order_by(Suggestion.ward)
+            .all()
+        )
+        priority_counts = dict(
+            db.session.query(Suggestion.ai_priority, db.func.count(Suggestion.id))
+            .filter(Suggestion.ai_priority.isnot(None))
+            .group_by(Suggestion.ai_priority)
+            .all()
+        )
+        high_priority_count = Suggestion.query.filter(
+            Suggestion.ai_priority.in_(["High", "Urgent"])
+        ).count()
+        recent_activity = (
+            db.session.query(ActivityLog, User.username)
+            .outerjoin(User, ActivityLog.user_id == User.id)
+            .order_by(ActivityLog.created_at.desc(), ActivityLog.id.desc())
+            .limit(8)
+            .all()
+        )
 
         return render_template(
             "dashboard.html",
             total_suggestions=sum(status_counts.values()),
             status_counts=status_counts,
-            category_counts=category_counts
+            category_counts=category_counts,
+            ward_counts=ward_counts,
+            category_max=max([count for _, count in category_counts] or [0]),
+            ward_max=max([count for _, count in ward_counts] or [0]),
+            priority_counts={
+                priority: priority_counts.get(priority, 0)
+                for priority in ["Low", "Medium", "High", "Urgent"]
+            },
+            high_priority_count=high_priority_count,
+            recent_activity=recent_activity
         )
 
     # ---------------- SUGGESTION MANAGEMENT ----------------
@@ -494,6 +673,7 @@ def register_routes(app):
         status = request.args.get("status", "").strip()
         category = request.args.get("category", "").strip()
         ward = request.args.get("ward", "").strip()
+        priority = request.args.get("priority", "").strip()
 
         query = Suggestion.query
 
@@ -516,6 +696,8 @@ def register_routes(app):
 
         if ward:
             query = query.filter(Suggestion.ward == ward)
+        if priority:
+            query = query.filter(Suggestion.ai_priority == priority)
 
         suggestions = query.order_by(
             Suggestion.created_at.desc()
@@ -546,6 +728,7 @@ def register_routes(app):
             selected_status=status,
             selected_category=category,
             selected_ward=ward,
+            selected_priority=priority,
             categories=categories,
             wards=wards
         )
@@ -619,6 +802,22 @@ def register_routes(app):
         ))
 
     # ---------------- ACTIVITY LOG ----------------
+
+    @app.route("/staff/activity")
+    @staff_required
+    def staff_activity_log():
+        activity_entries = (
+            db.session.query(ActivityLog, User.username)
+            .outerjoin(User, ActivityLog.user_id == User.id)
+            .filter(ActivityLog.action.in_(["Suggestion Updated"]))
+            .order_by(ActivityLog.created_at.desc(), ActivityLog.id.desc())
+            .all()
+        )
+        return render_template(
+            "activity_log.html",
+            activity_entries=activity_entries,
+            staff_view=True
+        )
 
     @app.route("/admin/activity")
     @admin_required

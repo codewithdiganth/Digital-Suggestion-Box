@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#10291f">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}Digital Suggestion Box{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -34,6 +35,11 @@
                     {% if current_user.role in ["admin", "staff"] %}
                         <a href="{{ url_for('dashboard') }}">Dashboard</a>
                         <a href="{{ url_for('manage_suggestions') }}">Suggestions</a>
+                        {% if current_user.role == "admin" %}
+                            <a href="{{ url_for('activity_log') }}">Activity</a>
+                        {% else %}
+                            <a href="{{ url_for('staff_activity_log') }}">Activity</a>
+                        {% endif %}
                     {% endif %}
                     {% if current_user.role == "admin" %}
                         <a href="{{ url_for('manage_users') }}">Users</a>
@@ -61,6 +67,33 @@
             <p>Digital Suggestion Box for Local Governance</p>
         </div>
     </footer>
+    {% if not current_user.is_authenticated or current_user.role not in ["admin", "staff"] %}
+    <aside class="ai-chat-widget" id="ai-chat-widget" aria-label="AI civic assistant">
+        <button class="ai-chat-toggle" id="ai-chat-toggle" type="button" aria-expanded="false">
+            <span>✦</span>
+            <strong>AI Civic Assistant</strong>
+        </button>
+        <div class="ai-chat-panel" id="ai-chat-panel" hidden>
+            <div class="ai-chat-header">
+                <div><span class="ai-status-dot"></span><strong>Civic AI Assistant</strong></div>
+                <button type="button" id="ai-chat-close" aria-label="Close assistant">×</button>
+            </div>
+            <div class="ai-chat-messages" id="ai-chat-messages" aria-live="polite">
+                <div class="ai-message assistant">
+                    Hello! I can help you describe a civic issue or understand how to report roads, water, drainage, garbage and streetlight problems.
+                </div>
+            </div>
+            <div class="ai-chat-loading" id="ai-chat-loading" hidden>
+                <span></span><span></span><span></span>
+            </div>
+            <form class="ai-chat-form" id="ai-chat-form">
+                <label class="sr-only" for="ai-chat-input">Ask the civic assistant</label>
+                <input id="ai-chat-input" name="message" maxlength="1000" placeholder="Ask about a civic issue..." autocomplete="off" required>
+                <button type="submit" aria-label="Send message">→</button>
+            </form>
+        </div>
+    </aside>
+    {% endif %}
     <script>
         const toggle = document.querySelector('.nav-toggle');
         const nav = document.querySelector('.main-nav');
@@ -68,6 +101,67 @@
             toggle.addEventListener('click', () => {
                 const open = nav.classList.toggle('open');
                 toggle.setAttribute('aria-expanded', String(open));
+            });
+        }
+
+        const chatWidget = document.getElementById('ai-chat-widget');
+        if (chatWidget) {
+            const chatToggle = document.getElementById('ai-chat-toggle');
+            const chatPanel = document.getElementById('ai-chat-panel');
+            const chatClose = document.getElementById('ai-chat-close');
+            const chatForm = document.getElementById('ai-chat-form');
+            const chatInput = document.getElementById('ai-chat-input');
+            const chatMessages = document.getElementById('ai-chat-messages');
+            const chatLoading = document.getElementById('ai-chat-loading');
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
+            const setChatOpen = (open) => {
+                chatPanel.hidden = !open;
+                chatToggle.setAttribute('aria-expanded', String(open));
+                if (open) chatInput.focus();
+            };
+
+            chatToggle.addEventListener('click', () => setChatOpen(chatPanel.hidden));
+            chatClose.addEventListener('click', () => setChatOpen(false));
+
+            chatForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const message = chatInput.value.trim();
+                if (!message) return;
+
+                const userBubble = document.createElement('div');
+                userBubble.className = 'ai-message user';
+                userBubble.textContent = message;
+                chatMessages.appendChild(userBubble);
+                chatInput.value = '';
+                chatLoading.hidden = false;
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+
+                try {
+                    const response = await fetch('{{ url_for("ai_chat") }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrfToken
+                        },
+                        body: JSON.stringify({ message })
+                    });
+                    const data = await response.json();
+
+                    const assistantBubble = document.createElement('div');
+                    assistantBubble.className = 'ai-message assistant';
+                    assistantBubble.textContent = data.reply || data.error || 'The AI assistant could not respond.';
+                    chatMessages.appendChild(assistantBubble);
+                } catch (error) {
+                    const assistantBubble = document.createElement('div');
+                    assistantBubble.className = 'ai-message assistant';
+                    assistantBubble.textContent = 'The assistant could not connect. Please try again later.';
+                    chatMessages.appendChild(assistantBubble);
+                } finally {
+                    chatLoading.hidden = true;
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                    chatInput.focus();
+                }
             });
         }
     </script>

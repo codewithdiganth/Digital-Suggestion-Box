@@ -3,117 +3,98 @@
 {% block title %}Manage Suggestions{% endblock %}
 
 {% block content %}
+<div class="dashboard-header">
+    <div>
+        <span class="eyebrow">Suggestion management</span>
+        <h1>Citizen suggestions</h1>
+    </div>
+    <span class="count-badge">{{ suggestions|length }} records</span>
+</div>
 
-<section class="form-container">
-
-    <h2>Manage Suggestions</h2>
-
-    <form method="GET" action="{{ url_for('manage_suggestions') }}">
-
-        <label for="search">Search Suggestions</label>
-        <input
-            type="text"
-            id="search"
-            name="search"
-            placeholder="Tracking ID, name or description"
-            value="{{ search }}"
-        >
-
-        <label for="status">Filter by Status</label>
-        <select id="status" name="status">
-            <option value="">All Statuses</option>
-            <option value="Received"
-                {% if selected_status == "Received" %}selected{% endif %}>
-                Received
-            </option>
-            <option value="In Progress"
-                {% if selected_status == "In Progress" %}selected{% endif %}>
-                In Progress
-            </option>
-            <option value="Solved"
-                {% if selected_status == "Solved" %}selected{% endif %}>
-                Solved
-            </option>
-        </select>
-
-        <label for="category">Filter by Category</label>
-        <select id="category" name="category">
-            <option value="">All Categories</option>
-            {% for item in categories %}
-                <option value="{{ item }}"
-                    {% if selected_category == item %}selected{% endif %}>
-                    {{ item }}
-                </option>
-            {% endfor %}
-        </select>
-
-        <label for="ward">Filter by Ward</label>
-        <select id="ward" name="ward">
-            <option value="">All Wards</option>
-            {% for item in wards %}
-                <option value="{{ item }}"
-                    {% if selected_ward == item %}selected{% endif %}>
-                    {{ item }}
-                </option>
-            {% endfor %}
-        </select>
-
-        <button type="submit">Apply Filters</button>
-
-        <a href="{{ url_for('manage_suggestions') }}">Clear Filters</a>
-
+<section class="form-container filter-panel">
+    <form method="GET" action="{{ url_for('manage_suggestions') }}" class="management-filter">
+        <div class="field search-field">
+            <label for="search">Search</label>
+            <input type="text" id="search" name="search" placeholder="Tracking ID, name or description" value="{{ search }}">
+        </div>
+        <div class="field">
+            <label for="status">Status</label>
+            <select id="status" name="status">
+                <option value="">All statuses</option>
+                {% for item in ["Received", "In Progress", "Solved"] %}
+                    <option value="{{ item }}" {% if selected_status == item %}selected{% endif %}>{{ item }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="category">Category</label>
+            <select id="category" name="category">
+                <option value="">All categories</option>
+                {% for item in categories %}
+                    <option value="{{ item }}" {% if selected_category == item %}selected{% endif %}>{{ item }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="ward">Ward</label>
+            <select id="ward" name="ward">
+                <option value="">All wards</option>
+                {% for item in wards %}
+                    <option value="{{ item }}" {% if selected_ward == item %}selected{% endif %}>{{ item }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="priority">AI priority</label>
+            <select id="priority" name="priority">
+                <option value="">All priorities</option>
+                {% for item in ["Low", "Medium", "High", "Urgent"] %}
+                    <option value="{{ item }}" {% if selected_priority == item %}selected{% endif %}>{{ item }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn filter-button">Apply</button>
+        <a class="clear-filter" href="{{ url_for('manage_suggestions') }}">Clear</a>
     </form>
+</section>
 
-    <hr>
-
-    <h3>Suggestions ({{ suggestions|length }})</h3>
-
+<section class="form-container table-panel">
     {% if suggestions %}
-
-        <div style="overflow-x: auto;">
-
-            <table>
+        <div class="table-scroll">
+            <table class="modern-table">
                 <thead>
                     <tr>
                         <th>Tracking ID</th>
-                        <th>Citizen Name</th>
+                        <th>Citizen</th>
                         <th>Category</th>
                         <th>Ward</th>
                         <th>Status</th>
-                        <th>Date Submitted</th>
+                        <th>AI priority</th>
+                        <th>Submitted</th>
                         <th>Action</th>
                     </tr>
                 </thead>
-
                 <tbody>
                     {% for suggestion in suggestions %}
                         <tr>
-                            <td>{{ suggestion.tracking_id }}</td>
+                            <td><strong class="tracking-code">{{ suggestion.tracking_id }}</strong></td>
                             <td>{{ suggestion.name }}</td>
                             <td>{{ suggestion.category }}</td>
                             <td>{{ suggestion.ward or "Not provided" }}</td>
-                            <td>{{ suggestion.status }}</td>
+                            <td><span class="status-pill status-{{ suggestion.status|lower|replace(' ', '-') }}">{{ suggestion.status }}</span></td>
+                            <td><span class="priority-{{ (suggestion.ai_priority or 'low')|lower }}">{{ suggestion.ai_priority or "Not set" }}</span></td>
+                            <td>{{ suggestion.created_at.strftime("%d %b %Y") }}</td>
                             <td>
-                                {{ suggestion.created_at.strftime("%d-%m-%Y") }}
-                            </td>
-                            <td>
-                                <a href="{{ url_for('suggestion_detail', suggestion_id=suggestion.id) }}">
-                                    View Details
-                                </a>
+                                <a class="table-action" href="{{ url_for('suggestion_detail', suggestion_id=suggestion.id) }}">View <span>→</span></a>
                             </td>
                         </tr>
                     {% endfor %}
                 </tbody>
             </table>
-
         </div>
-
     {% else %}
-
-        <p>No suggestions found.</p>
-
+        <p class="empty-state">No suggestions found for these filters.</p>
     {% endif %}
-
 </section>
 
 {% endblock %}

@@ -16,6 +16,7 @@ class Suggestion(db.Model):
     )
 
     name = db.Column(db.String(100), nullable=False)
+    title = db.Column(db.String(150), nullable=True)
     category = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=False)
 
@@ -28,6 +29,9 @@ class Suggestion(db.Model):
     ward = db.Column(db.String(100), nullable=True)
     officer_remark = db.Column(db.Text, nullable=True)
     photo_filename = db.Column(db.String(255), nullable=True)
+    ai_priority = db.Column(db.String(20), nullable=True)
+    ai_priority_reason = db.Column(db.Text, nullable=True)
+    ai_priority_provider = db.Column(db.String(30), nullable=True)
 
     created_at = db.Column(
         db.DateTime,

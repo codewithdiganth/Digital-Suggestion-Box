@@ -6,8 +6,8 @@
 
 <section class="form-container">
 
-    <h2>Activity Log</h2>
-    <p>Recent account and suggestion management activity.</p>
+    <h2>{% if staff_view %}Suggestion Activity{% else %}Activity Log{% endif %}</h2>
+    <p>{% if staff_view %}Recent suggestion status updates handled by staff and administrators.{% else %}Recent account and suggestion management activity.{% endif %}</p>
 
     {% if activity_entries %}
         <div style="overflow-x: auto;">

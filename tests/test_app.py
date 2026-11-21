@@ -76,9 +76,17 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
             "/submit",
             data={
                 "name": "Another Citizen",
-                "category": "Water",
+                "title": "Improve the local water supply",
+                "category": "Water Supply",
                 "description": "Improve water supply.",
-                "photo": (io.BytesIO(b"not-real-image-data"), "water.jpg"),
+                "photo": (
+                    io.BytesIO(
+                        b"\x89PNG\r\n\x1a\n"
+                        + b"\x00\x00\x00\rIHDR"
+                        + b"\x00\x00\x00\x01\x00\x00\x00\x01"
+                    ),
+                    "water.png",
+                ),
             },
             follow_redirects=True,
         )
@@ -90,6 +98,10 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
                 name="Another Citizen"
             ).one()
             self.assertTrue(re.fullmatch(r"[0-9]{8}", submitted.tracking_id))
+            self.assertIn(submitted.ai_priority, [
+                "Low", "Medium", "High", "Urgent"
+            ])
+            self.assertIsNotNone(submitted.ai_priority_reason)
 
         tracked = self.client.get(
             "/track",
@@ -106,6 +118,64 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
         )
         self.assertIn(b"Enter a valid tracking ID.", malformed.data)
 
+    def test_ai_chat_fallback_and_validation(self):
+        empty = self.client.post("/api/ai/chat", json={"message": " "})
+        self.assertEqual(empty.status_code, 400)
+
+        too_long = self.client.post(
+            "/api/ai/chat",
+            json={"message": "a" * 1001},
+        )
+        self.assertEqual(too_long.status_code, 400)
+
+        response = self.client.post(
+            "/api/ai/chat",
+            json={"message": "How do I report a damaged road?"},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertIn("reply", payload)
+        self.assertTrue(payload["fallback"])
+        self.assertIn("tracking id", payload["reply"].lower())
+
+    def test_ai_suggestion_draft_never_submits(self):
+        response = self.client.post(
+            "/api/ai/suggestion-draft",
+            json={"message": "unused"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+        response = self.client.post(
+            "/api/ai/suggestion-draft",
+            json={"description": "Big hole in road near my house"},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["fallback"])
+        self.assertEqual(
+            payload["category"],
+            "Roads and Infrastructure",
+        )
+        self.assertIn("road", payload["description"].lower())
+        self.assertIn(payload["priority"], ["Low", "Medium", "High", "Urgent"])
+        self.assertTrue(payload["priority_reason"])
+
+    def test_ai_tracking_explanation_only_uses_matched_record(self):
+        invalid = self.client.post("/api/ai/tracking/not-a-tracking-id")
+        self.assertEqual(invalid.status_code, 400)
+
+        missing = self.client.post("/api/ai/tracking/99999999")
+        self.assertEqual(missing.status_code, 404)
+
+        response = self.client.post(
+            f"/api/ai/tracking/{self.tracking_id}"
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertIn("received", payload["explanation"].lower())
+        self.assertTrue(payload["fallback"])
+        self.assertIn("No officer remark", payload["remark_explanation"])
+
     def test_role_permissions_and_dashboard(self):
         for path in ("/dashboard", "/admin/suggestions", "/admin/users", "/admin/activity"):
             response = self.client.get(path)
@@ -115,6 +185,12 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
         self.sign_in_as(self.staff_id)
         self.assertEqual(self.client.get("/dashboard").status_code, 200)
         self.assertEqual(self.client.get("/admin/suggestions").status_code, 200)
+        self.assertEqual(self.client.get("/staff/activity").status_code, 200)
+        filtered = self.client.get(
+            "/admin/suggestions",
+            query_string={"priority": "Urgent"},
+        )
+        self.assertEqual(filtered.status_code, 200)
         self.assertEqual(self.client.get("/admin/users").status_code, 403)
         self.assertEqual(self.client.get("/admin/activity").status_code, 403)
         self.assertEqual(self.client.get("/submit").status_code, 403)
@@ -283,6 +359,8 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
         self.assertIn(b"Solved", response.data)
         self.assertIn(b"Roads", response.data)
         self.assertIn(b"Water", response.data)
+        self.assertIn(b"class=\"bar-chart\"", response.data)
+        self.assertIn(b"Priority summary", response.data)
 
     def test_deactivated_user_session_is_revoked(self):
         self.sign_in_as(self.staff_id)

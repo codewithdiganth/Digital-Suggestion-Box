@@ -23,15 +23,32 @@
                     <input type="text" id="ward" name="ward" placeholder="e.g. Ward 1" maxlength="100">
                 </div>
             </div>
+            <div class="ai-draft-panel">
+                <div>
+                    <span class="eyebrow">AI writing assistant</span>
+                    <p>Describe the problem in simple words. You will review every AI suggestion before submitting.</p>
+                </div>
+                <button type="button" class="btn ai-draft-button" id="ai-draft-button">
+                    Improve with AI <span>✦</span>
+                </button>
+                <div class="ai-draft-loading" id="ai-draft-loading" hidden>Preparing a draft…</div>
+                <div class="ai-draft-notice" id="ai-draft-notice" hidden></div>
+            </div>
+            <div class="field">
+                <label for="title">Suggestion title</label>
+                <input type="text" id="title" name="title" placeholder="A clear title for your suggestion" maxlength="150" required>
+            </div>
             <div class="field">
                 <label for="category">Suggestion category</label>
                 <select id="category" name="category" required>
                     <option value="">Select a category</option>
-                    <option value="Roads">Roads & transport</option>
-                    <option value="Water">Water supply</option>
+                    <option value="Roads and Infrastructure">Roads and Infrastructure</option>
+                    <option value="Water Supply">Water Supply</option>
+                    <option value="Drainage">Drainage</option>
+                    <option value="Electricity and Streetlights">Electricity and Streetlights</option>
+                    <option value="Garbage Collection">Garbage Collection</option>
                     <option value="Sanitation">Sanitation</option>
-                    <option value="Electricity">Electricity</option>
-                    <option value="Parks">Parks & public spaces</option>
+                    <option value="Public Safety">Public Safety</option>
                     <option value="Other">Other</option>
                 </select>
             </div>
@@ -55,4 +72,60 @@
         </ol>
     </aside>
 </section>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const draftButton = document.getElementById('ai-draft-button');
+    const description = document.getElementById('description');
+    const title = document.getElementById('title');
+    const category = document.getElementById('category');
+    const loading = document.getElementById('ai-draft-loading');
+    const notice = document.getElementById('ai-draft-notice');
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
+    draftButton.addEventListener('click', async () => {
+        const text = description.value.trim();
+        notice.hidden = true;
+        if (!text) {
+            notice.textContent = 'Please describe the issue before using AI.';
+            notice.hidden = false;
+            description.focus();
+            return;
+        }
+
+        draftButton.disabled = true;
+        loading.hidden = false;
+        try {
+            const response = await fetch('{{ url_for("ai_suggestion_draft") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ description: text })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Unable to create a draft.');
+
+            title.value = data.title || '';
+            category.value = data.category || 'Other';
+            description.value = data.description || text;
+            notice.textContent = (
+                (data.fallback
+                    ? 'Offline draft generated.'
+                    : 'AI draft generated.')
+                + ' Recommended priority: ' + (data.priority || 'Low')
+                + '. ' + (data.priority_reason || '')
+                + ' Review and approve all content before submitting.'
+            );
+            notice.hidden = false;
+        } catch (error) {
+            notice.textContent = error.message;
+            notice.hidden = false;
+        } finally {
+            draftButton.disabled = false;
+            loading.hidden = true;
+        }
+    });
+});
+</script>
 {% endblock %}
