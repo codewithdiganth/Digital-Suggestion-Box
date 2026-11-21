@@ -26,7 +26,9 @@
             </button>
             <nav class="main-nav" aria-label="Main navigation">
                 <a href="{{ url_for('home') }}" class="{% if request.endpoint == 'home' %}active{% endif %}">Home</a>
-                <a href="{{ url_for('submit') }}" class="{% if request.endpoint == 'submit' %}active{% endif %}">Submit</a>
+                {% if not current_user.is_authenticated or current_user.role not in ["admin", "staff"] %}
+                    <a href="{{ url_for('submit') }}" class="{% if request.endpoint == 'submit' %}active{% endif %}">Submit</a>
+                {% endif %}
                 <a href="{{ url_for('track_suggestion') }}" class="{% if request.endpoint == 'track_suggestion' %}active{% endif %}">Track</a>
                 {% if current_user.is_authenticated %}
                     {% if current_user.role in ["admin", "staff"] %}

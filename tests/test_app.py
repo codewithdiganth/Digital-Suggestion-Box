@@ -117,6 +117,17 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
         self.assertEqual(self.client.get("/admin/suggestions").status_code, 200)
         self.assertEqual(self.client.get("/admin/users").status_code, 403)
         self.assertEqual(self.client.get("/admin/activity").status_code, 403)
+        self.assertEqual(self.client.get("/submit").status_code, 403)
+
+        response = self.client.post(
+            "/api/suggestions",
+            json={
+                "name": "Staff Member",
+                "category": "Roads",
+                "description": "This submission must be rejected.",
+            },
+        )
+        self.assertEqual(response.status_code, 403)
 
         self.client.get("/logout")
         self.sign_in_as(self.admin_id)

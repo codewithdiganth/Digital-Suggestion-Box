@@ -115,6 +115,12 @@ def register_routes(app):
 
     @app.route("/submit", methods=["GET", "POST"])
     def submit():
+        if (
+            current_user.is_authenticated
+            and current_user.role in ["admin", "staff"]
+        ):
+            abort(403)
+
         if request.method == "POST":
             name = request.form.get("name", "").strip()
             category = request.form.get("category", "").strip()
@@ -123,6 +129,12 @@ def register_routes(app):
 
             if not name or not category or not description:
                 flash("Please fill in all fields.", "error")
+                return redirect(url_for("submit"))
+            if len(name) > 100 or len(category) > 100 or len(ward) > 100:
+                flash("One or more submitted fields are too long.", "error")
+                return redirect(url_for("submit"))
+            if len(description) > 5000:
+                flash("Please keep the description under 5000 characters.", "error")
                 return redirect(url_for("submit"))
 
             try:
@@ -157,6 +169,14 @@ def register_routes(app):
     @app.route("/api/suggestions", methods=["POST"])
     @csrf.exempt
     def api_create_suggestion():
+        if (
+            current_user.is_authenticated
+            and current_user.role in ["admin", "staff"]
+        ):
+            return jsonify({
+                "error": "Staff and administrator accounts cannot submit citizen suggestions"
+            }), 403
+
         data = request.get_json(silent=True) or request.form
         name = str(data.get("name", "")).strip()
         category = str(data.get("category", "")).strip()
