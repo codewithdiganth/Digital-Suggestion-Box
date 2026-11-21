@@ -337,6 +337,8 @@ def register_routes(app):
     @app.route("/login", methods=["GET", "POST"])
     def login():
         if current_user.is_authenticated:
+            if current_user.role in ["admin", "staff"]:
+                return redirect(url_for("dashboard"))
             return redirect(url_for("home"))
 
         if request.method == "POST":
@@ -365,6 +367,8 @@ def register_routes(app):
                 session.permanent = True
 
                 flash("Login successful.", "success")
+                if user.role in ["admin", "staff"]:
+                    return redirect(url_for("dashboard"))
                 return redirect(url_for("home"))
 
             if user and user.is_active:
@@ -423,6 +427,8 @@ def register_routes(app):
                 db.session.commit()
 
                 flash("Password changed successfully.", "success")
+                if current_user.role in ["admin", "staff"]:
+                    return redirect(url_for("dashboard"))
                 return redirect(url_for("home"))
 
         return render_template("change_password.html")

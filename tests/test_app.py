@@ -118,6 +118,9 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
         self.assertEqual(self.client.get("/admin/users").status_code, 403)
         self.assertEqual(self.client.get("/admin/activity").status_code, 403)
         self.assertEqual(self.client.get("/submit").status_code, 403)
+        homepage = self.client.get("/")
+        self.assertNotIn(b"Share a suggestion", homepage.data)
+        self.assertIn(b"Open dashboard", homepage.data)
 
         response = self.client.post(
             "/api/suggestions",
@@ -148,7 +151,7 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
             },
         )
         self.assertEqual(login.status_code, 302)
-        self.assertEqual(login.headers["Location"], "/")
+        self.assertEqual(login.headers["Location"], "/dashboard")
 
         forced_change = self.client.get("/dashboard")
         self.assertEqual(forced_change.status_code, 302)

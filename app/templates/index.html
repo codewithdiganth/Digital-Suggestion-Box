@@ -10,7 +10,11 @@
         <h1>Your voice can shape <em>better places.</em></h1>
         <p>Share an idea, report a local concern, or suggest an improvement. Every contribution creates a trackable response.</p>
         <div class="hero-actions">
-            <a href="{{ url_for('submit') }}" class="btn btn-primary">Share a suggestion <span>→</span></a>
+            {% if not current_user.is_authenticated or current_user.role not in ["admin", "staff"] %}
+                <a href="{{ url_for('submit') }}" class="btn btn-primary">Share a suggestion <span>→</span></a>
+            {% else %}
+                <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Open dashboard <span>→</span></a>
+            {% endif %}
             <a href="{{ url_for('track_suggestion') }}" class="btn btn-secondary">Track progress</a>
         </div>
     </div>
@@ -56,6 +60,10 @@
 
 <section class="purpose-strip">
     <p>“Small ideas become stronger communities when they are heard.”</p>
-    <a href="{{ url_for('submit') }}" class="text-link">Add your voice <span>→</span></a>
+    {% if not current_user.is_authenticated or current_user.role not in ["admin", "staff"] %}
+        <a href="{{ url_for('submit') }}" class="text-link">Add your voice <span>→</span></a>
+    {% else %}
+        <a href="{{ url_for('manage_suggestions') }}" class="text-link">Manage suggestions <span>→</span></a>
+    {% endif %}
 </section>
 {% endblock %}
