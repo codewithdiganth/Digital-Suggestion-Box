@@ -40,6 +40,20 @@
                 <div class="timeline-step {% if suggestion.status in ['In Progress','Solved'] %}complete{% endif %}"><span>{% if suggestion.status in ['In Progress','Solved'] %}✓{% else %}2{% endif %}</span><div><strong>In review</strong><small>Being assessed by the team</small></div></div>
                 <div class="timeline-step {% if suggestion.status == 'Solved' %}complete{% endif %}"><span>{% if suggestion.status == 'Solved' %}✓{% else %}3{% endif %}</span><div><strong>Solved</strong><small>Resolution confirmed</small></div></div>
             </div>
+            {% if status_history %}
+            <div class="status-history">
+                <span>Update history</span>
+                <ol>
+                    {% for update in status_history %}
+                    <li>
+                        <strong>{{ update.status }}</strong>
+                        <time>{{ update.created_at.strftime("%d %b %Y, %H:%M") }}</time>
+                        {% if update.remark %}<p>{{ update.remark }}</p>{% endif %}
+                    </li>
+                    {% endfor %}
+                </ol>
+            </div>
+            {% endif %}
             <div class="officer-update">
                 <span>Latest update</span>
                 <p>{{ suggestion.officer_remark or "No update has been added yet." }}</p>

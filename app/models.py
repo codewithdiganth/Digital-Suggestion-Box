@@ -95,3 +95,27 @@ class ActivityLog(db.Model):
         db.DateTime,
         default=datetime.utcnow
     )
+
+
+class StatusHistory(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    suggestion_id = db.Column(
+        db.Integer,
+        db.ForeignKey("suggestion.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    status = db.Column(db.String(30), nullable=False)
+    remark = db.Column(db.Text, nullable=True)
+
+    changed_by = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    created_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow
+    )

@@ -6,7 +6,7 @@ import io
 os.environ["DATABASE_URL"] = "sqlite://"
 
 from app import create_app, db
-from app.models import ActivityLog, Suggestion, User
+from app.models import ActivityLog, StatusHistory, Suggestion, User
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
@@ -194,6 +194,18 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
         self.assertEqual(self.client.get("/admin/users").status_code, 403)
         self.assertEqual(self.client.get("/admin/activity").status_code, 403)
         self.assertEqual(self.client.get("/submit").status_code, 403)
+
+        direct_submit = self.client.post(
+            "/submit",
+            data={
+                "name": "Staff Member",
+                "title": "Unauthorized submission",
+                "category": "Roads",
+                "description": "This direct submission must be rejected.",
+            },
+        )
+        self.assertEqual(direct_submit.status_code, 403)
+
         homepage = self.client.get("/")
         self.assertNotIn(b"Share a suggestion", homepage.data)
         self.assertIn(b"Open dashboard", homepage.data)
@@ -264,6 +276,13 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
         self.assertEqual(tracked.status_code, 200)
         self.assertIn(b"Solved", tracked.data)
         self.assertIn(b"The repair is complete.", tracked.data)
+        with self.app.app_context():
+            history = StatusHistory.query.filter_by(
+                suggestion_id=self.suggestion_id
+            ).order_by(StatusHistory.created_at.desc()).all()
+            self.assertTrue(history)
+            self.assertEqual(history[0].status, "Solved")
+            self.assertEqual(history[0].remark, "The repair is complete.")
 
         self.client.get("/logout")
         admin_login = self.client.post(

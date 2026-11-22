@@ -27,7 +27,7 @@ from app.ai_service import (
     generate_priority_recommendation,
     explain_tracking_status,
 )
-from app.models import Suggestion, User, ActivityLog
+from app.models import Suggestion, User, ActivityLog, StatusHistory
 
 
 ALLOWED_PHOTO_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
@@ -303,6 +303,12 @@ def register_routes(app):
         if remark is not None:
             suggestion.officer_remark = str(remark).strip()
 
+        db.session.add(StatusHistory(
+            suggestion_id=suggestion.id,
+            status=status,
+            remark=suggestion.officer_remark,
+            changed_by=current_user.id,
+        ))
         db.session.add(ActivityLog(
             user_id=current_user.id,
             action="Suggestion Updated",
@@ -370,6 +376,12 @@ def register_routes(app):
             "track.html",
             tracking_id=tracking_id,
             suggestion=suggestion,
+            status_history=(
+                StatusHistory.query.filter_by(
+                    suggestion_id=suggestion.id
+                ).order_by(StatusHistory.created_at.asc()).all()
+                if suggestion else []
+            ),
             error=error
         )
 
@@ -782,6 +794,12 @@ def register_routes(app):
         suggestion.status = new_status
         suggestion.officer_remark = new_remark
 
+        db.session.add(StatusHistory(
+            suggestion_id=suggestion.id,
+            status=new_status,
+            remark=new_remark,
+            changed_by=current_user.id,
+        ))
         log = ActivityLog(
             user_id=current_user.id,
             action="Suggestion Updated",
