@@ -4,6 +4,7 @@ import time
 import urllib.error
 import urllib.request
 from threading import Lock
+from difflib import SequenceMatcher
 
 
 FALLBACK_MESSAGE = (
@@ -72,7 +73,12 @@ def generate_chat_reply(message, history=None):
                     "what information a citizen can include when reporting an "
                     "issue. Never claim to be a government employee or provide "
                     "official decisions. Clearly tell citizens to verify urgent "
-                    "or emergency matters with their local authorities."
+                    "or emergency matters with their local authorities. Never "
+                    "request or reveal passwords, personal records, staff-only "
+                    "details or another citizen's private information. Do not "
+                    "invent suggestion statuses or tracking results. Tell a "
+                    "citizen to use the tracking page and verify their 8-digit "
+                    "tracking ID before asking for tracking details."
                 )
             }]
         },
@@ -159,6 +165,11 @@ def generate_suggestion_draft(description):
             "title": title,
             "category": category,
             "description": raw_description,
+            "summary": raw_description[:1000],
+            "missing_details": (
+                "Location, dates or times, affected people, and a possible "
+                "preferred improvement were not supplied."
+            ),
             "fallback": True,
             "provider": "offline fallback",
         }
@@ -179,7 +190,9 @@ def generate_suggestion_draft(description):
                     "under 150 characters. category must be exactly one of: "
                     + ", ".join(categories)
                     + ". description must be professional and under 5000 "
-                    "characters. Prefix no JSON with markdown."
+                    "characters. Also identify missing details and provide a "
+                    "brief summary. Return exactly these additional fields: "
+                    "missing_details and summary. Prefix no JSON with markdown."
                 )
             }]
         },
@@ -223,6 +236,8 @@ def generate_suggestion_draft(description):
             "title": title,
             "category": category,
             "description": description,
+            "summary": str(result.get("summary", "")).strip()[:1000],
+            "missing_details": str(result.get("missing_details", "")).strip()[:1000],
             "fallback": False,
             "provider": "Gemini",
         }
@@ -232,6 +247,8 @@ def generate_suggestion_draft(description):
             "title": raw_description[:150].replace("\n", " ").strip(),
             "category": "Other",
             "description": raw_description,
+            "summary": raw_description[:1000],
+            "missing_details": "Location, dates or times, affected people, and a possible preferred improvement were not supplied.",
             "fallback": True,
             "provider": "offline fallback",
         }
@@ -336,6 +353,60 @@ def generate_priority_recommendation(description):
             "fallback": True,
             "provider": "offline fallback",
         }
+
+
+def find_similar_suggestions(suggestions, limit=5):
+    matches = []
+    for index, suggestion in enumerate(suggestions):
+        for other in suggestions[index + 1:]:
+            if suggestion.category == other.category:
+                similarity = SequenceMatcher(
+                    None,
+                    suggestion.description.lower(),
+                    other.description.lower(),
+                ).ratio()
+            else:
+                similarity = 0
+            if similarity >= 0.72:
+                matches.append({
+                    "tracking_id": suggestion.tracking_id,
+                    "similar_tracking_id": other.tracking_id,
+                    "similarity": round(similarity * 100),
+                    "category": suggestion.category,
+                })
+            if len(matches) >= limit:
+                return matches
+    return matches
+
+
+def generate_staff_summary(suggestions, status_counts=None, category_counts=None):
+    total = len(suggestions)
+    pending = sum(
+        1 for suggestion in suggestions
+        if suggestion.status in ["Received", "In Progress"]
+    )
+    solved = sum(
+        1 for suggestion in suggestions
+        if suggestion.status == "Solved"
+    )
+    urgent = sum(
+        1 for suggestion in suggestions
+        if suggestion.ai_priority in ["High", "Urgent"]
+    )
+    common_category = "No category data"
+    if category_counts:
+        common_category = max(category_counts, key=category_counts.get)
+
+    return {
+        "summary": (
+            f"{total} citizen suggestions are recorded: {pending} require action "
+            f"or follow-up, {solved} are marked solved, and {urgent} have a "
+            f"high or urgent AI priority recommendation."
+        ),
+        "common_category": common_category,
+        "provider": "offline analysis",
+        "fallback": True,
+    }
 
 
 def explain_tracking_status(status, officer_remark=None):

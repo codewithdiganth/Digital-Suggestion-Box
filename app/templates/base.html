@@ -76,7 +76,10 @@
         <div class="ai-chat-panel" id="ai-chat-panel" hidden>
             <div class="ai-chat-header">
                 <div><span class="ai-status-dot"></span><strong>Civic AI Assistant</strong></div>
-                <button type="button" id="ai-chat-close" aria-label="Close assistant">×</button>
+                <div class="ai-chat-header-actions">
+                    <button type="button" id="ai-chat-new" aria-label="Start new conversation" title="New conversation">↻</button>
+                    <button type="button" id="ai-chat-close" aria-label="Close assistant">×</button>
+                </div>
             </div>
             <div class="ai-chat-messages" id="ai-chat-messages" aria-live="polite">
                 <div class="ai-message assistant">
@@ -109,6 +112,7 @@
             const chatToggle = document.getElementById('ai-chat-toggle');
             const chatPanel = document.getElementById('ai-chat-panel');
             const chatClose = document.getElementById('ai-chat-close');
+            const chatNew = document.getElementById('ai-chat-new');
             const chatForm = document.getElementById('ai-chat-form');
             const chatInput = document.getElementById('ai-chat-input');
             const chatMessages = document.getElementById('ai-chat-messages');
@@ -123,6 +127,26 @@
 
             chatToggle.addEventListener('click', () => setChatOpen(chatPanel.hidden));
             chatClose.addEventListener('click', () => setChatOpen(false));
+            chatNew.addEventListener('click', async () => {
+                try {
+                    await fetch('{{ url_for("ai_chat_reset") }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrfToken
+                        }
+                    });
+                } catch (error) {
+                    // The browser can still start a fresh visible conversation.
+                }
+                chatMessages.replaceChildren();
+                const welcome = document.createElement('div');
+                welcome.className = 'ai-message assistant';
+                welcome.textContent = 'Hello! This is a new conversation. How can I help with a local civic issue?';
+                chatMessages.appendChild(welcome);
+                chatInput.value = '';
+                chatInput.focus();
+            });
 
             chatForm.addEventListener('submit', async (event) => {
                 event.preventDefault();

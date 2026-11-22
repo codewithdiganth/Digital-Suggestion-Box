@@ -17,13 +17,16 @@ def create_app():
     app = Flask(__name__, instance_relative_config=True)
 
     app.config.from_object(Config)
+    if os.environ.get("APP_ENV", "development").lower() == "production":
+        if not app.config.get("SECRET_KEY"):
+            raise RuntimeError("SECRET_KEY is required when APP_ENV=production")
 
     os.makedirs(app.instance_path, exist_ok=True)
     app.config.setdefault(
         "UPLOAD_FOLDER",
         os.path.join(app.instance_path, "uploads")
     )
-    app.config.setdefault("MAX_CONTENT_LENGTH", 5 * 1024 * 1024)
+    app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
     db.init_app(app)

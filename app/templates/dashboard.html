@@ -32,6 +32,60 @@
     </article>
 </section>
 
+<section class="form-container analytics-card ai-recommendation-card weekly-report-card">
+    <div class="panel-heading">
+        <div>
+            <span class="eyebrow">AI-assisted weekly recommendation</span>
+            <h2>Last 7 days and work summary</h2>
+        </div>
+    </div>
+    <div class="weekly-report-grid">
+        <div><span>Received this week</span><strong>{{ weekly_report.received }}</strong></div>
+        <div><span>Pending work</span><strong>{{ weekly_report.pending }}</strong></div>
+        <div><span>Completed work</span><strong>{{ weekly_report.completed }}</strong></div>
+        <div><span>Common weekly category</span><strong>{{ weekly_report.common_category }}</strong></div>
+    </div>
+    <small>Generated from recorded database totals. Verify operational details before using this report officially.</small>
+</section>
+
+<section class="dashboard-grid">
+    <article class="form-container analytics-card ai-recommendation-card">
+        <div class="panel-heading">
+            <div>
+                <span class="eyebrow">AI-assisted staff recommendation</span>
+                <h2>Operational summary</h2>
+            </div>
+        </div>
+        <p>{{ staff_summary.summary }}</p>
+        <p><strong>Most common category:</strong> {{ staff_summary.common_category }}</p>
+        <small>Advisory analysis from {{ staff_summary.provider }}. Staff retain final decisions.</small>
+    </article>
+
+    <article class="form-container analytics-card ai-recommendation-card">
+        <div class="panel-heading">
+            <div>
+                <span class="eyebrow">AI-assisted duplicate review</span>
+                <h2>Possible similar suggestions</h2>
+            </div>
+        </div>
+        {% if similar_suggestions %}
+            <ul class="similar-suggestion-list">
+                {% for match in similar_suggestions %}
+                    <li>
+                        <strong>{{ match.tracking_id }}</strong>
+                        and
+                        <strong>{{ match.similar_tracking_id }}</strong>
+                        <span>{{ match.similarity }}% similar</span>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="empty-state">No strong duplicate pattern was detected.</p>
+        {% endif %}
+        <small>Similarity is advisory. Staff must verify before taking action.</small>
+    </article>
+</section>
+
 <section class="dashboard-grid">
     <article class="form-container analytics-card">
         <div class="panel-heading">

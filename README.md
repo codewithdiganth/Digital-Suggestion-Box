@@ -13,6 +13,38 @@ A modern Flask civic engagement platform for submitting, reviewing and tracking 
 - Administrator account, password and activity management
 - Ward, category, status and AI-priority dashboards
 - CSRF protection, password hashing and role-based access
+- Status history for citizen tracking
+- Session chat history and new-conversation reset
+- AI draft preview that requires explicit citizen approval
+- Staff-only AI summaries, duplicate review and weekly reports
+- Login throttling and 5 MB upload limits
+
+## System architecture
+
+```text
+Browser
+  -> Flask routes and templates
+  -> Flask-Login / Flask-WTF / SQLAlchemy
+  -> SQLite database
+  -> Gemini API through secure server-side ai_service.py
+```
+
+Staff and citizen roles are enforced in Flask routes. Gemini API keys are read from `.env` and are never sent to browser JavaScript. AI responses are advisory and cannot update database records or citizen statuses automatically.
+
+## Database design
+
+- `User`: staff and administrator accounts, password hash, role and login lock fields.
+- `Suggestion`: citizen details, tracking ID, category, status, ward, photo and AI priority.
+- `ActivityLog`: administrative actions and status-change audit records.
+- `StatusHistory`: ordered status and remark history for each suggestion.
+
+The relationship is:
+
+```text
+User 1 ---- many ActivityLog
+User 1 ---- many StatusHistory (optional changed_by)
+Suggestion 1 ---- many StatusHistory
+```
 
 ## Run locally
 
@@ -55,7 +87,7 @@ flask --app run.py db current
 flask --app run.py db heads
 ```
 
-The migration head is `d3f91a6b20ce`.
+The migration head is `e6a1c9d2f804`.
 
 ## Tests
 
@@ -80,6 +112,7 @@ python -m unittest discover -s tests -v
 - `POST /api/ai/chat` — citizen chatbot
 - `POST /api/ai/suggestion-draft` — citizen draft assistance
 - `POST /api/ai/tracking/<tracking_id>` — citizen tracking explanation
+- `POST /api/ai/chat/reset` — start a new citizen chat conversation
 
 Example public submission:
 

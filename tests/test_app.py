@@ -7,6 +7,7 @@ os.environ["DATABASE_URL"] = "sqlite://"
 
 from app import create_app, db
 from app.models import ActivityLog, StatusHistory, Suggestion, User
+from app.ai_service import find_similar_suggestions, generate_staff_summary
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
@@ -138,6 +139,20 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
         self.assertTrue(payload["fallback"])
         self.assertIn("tracking id", payload["reply"].lower())
 
+    def test_ai_chat_reset_starts_new_session_history(self):
+        first = self.client.post(
+            "/api/ai/chat",
+            json={"message": "How do I report a pothole?"},
+        )
+        self.assertEqual(first.status_code, 200)
+
+        reset = self.client.post("/api/ai/chat/reset")
+        self.assertEqual(reset.status_code, 200)
+        self.assertIn(b"new conversation", reset.data)
+
+        with self.client.session_transaction() as session:
+            self.assertNotIn("ai_chat_history", session)
+
     def test_ai_suggestion_draft_never_submits(self):
         response = self.client.post(
             "/api/ai/suggestion-draft",
@@ -159,6 +174,8 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
         self.assertIn("road", payload["description"].lower())
         self.assertIn(payload["priority"], ["Low", "Medium", "High", "Urgent"])
         self.assertTrue(payload["priority_reason"])
+        self.assertIn("summary", payload)
+        self.assertIn("missing_details", payload)
 
     def test_ai_tracking_explanation_only_uses_matched_record(self):
         invalid = self.client.post("/api/ai/tracking/not-a-tracking-id")
@@ -380,6 +397,37 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
         self.assertIn(b"Water", response.data)
         self.assertIn(b"class=\"bar-chart\"", response.data)
         self.assertIn(b"Priority summary", response.data)
+        self.assertIn(b"AI-assisted staff recommendation", response.data)
+        self.assertIn(b"Staff retain final decisions", response.data)
+        self.assertIn(b"Last 7 days and work summary", response.data)
+        self.assertIn(b"Received this week", response.data)
+        self.assertIn(b"Pending work", response.data)
+        self.assertIn(b"Completed work", response.data)
+
+        with self.app.app_context():
+            suggestions = Suggestion.query.all()
+            summary = generate_staff_summary(
+                suggestions,
+                category_counts={"Roads": 2, "Water": 1},
+            )
+            self.assertIn("3 citizen suggestions", summary["summary"])
+            matches = find_similar_suggestions([
+                Suggestion(
+                    tracking_id="00000001",
+                    name="One",
+                    category="Roads",
+                    description="Deep pothole near the school",
+                    status="Received",
+                ),
+                Suggestion(
+                    tracking_id="00000002",
+                    name="Two",
+                    category="Roads",
+                    description="Deep pothole near the school",
+                    status="Received",
+                ),
+            ])
+            self.assertTrue(matches)
 
     def test_deactivated_user_session_is_revoked(self):
         self.sign_in_as(self.staff_id)

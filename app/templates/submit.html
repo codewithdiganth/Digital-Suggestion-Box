@@ -33,6 +33,23 @@
                 </button>
                 <div class="ai-draft-loading" id="ai-draft-loading" hidden>Preparing a draft…</div>
                 <div class="ai-draft-notice" id="ai-draft-notice" hidden></div>
+                <div class="ai-draft-review" id="ai-draft-review" hidden>
+                    <div>
+                        <span class="eyebrow">AI draft preview</span>
+                        <p id="ai-draft-summary"></p>
+                        <p id="ai-draft-missing"></p>
+                    </div>
+                    <label for="ai-draft-title">Suggested title</label>
+                    <input type="text" id="ai-draft-title" maxlength="150" readonly>
+                    <label for="ai-draft-category">Suggested category</label>
+                    <input type="text" id="ai-draft-category" maxlength="100" readonly>
+                    <label for="ai-draft-description">Suggested description</label>
+                    <textarea id="ai-draft-description" rows="6" maxlength="5000" readonly></textarea>
+                    <div class="ai-draft-actions">
+                        <button type="button" class="btn ai-draft-discard" id="ai-draft-discard">Keep original</button>
+                        <button type="button" class="btn ai-draft-apply" id="ai-draft-apply">Apply AI draft</button>
+                    </div>
+                </div>
             </div>
             <div class="field">
                 <label for="title">Suggestion title</label>
@@ -80,6 +97,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const category = document.getElementById('category');
     const loading = document.getElementById('ai-draft-loading');
     const notice = document.getElementById('ai-draft-notice');
+    const review = document.getElementById('ai-draft-review');
+    const previewTitle = document.getElementById('ai-draft-title');
+    const previewCategory = document.getElementById('ai-draft-category');
+    const previewDescription = document.getElementById('ai-draft-description');
+    const previewSummary = document.getElementById('ai-draft-summary');
+    const previewMissing = document.getElementById('ai-draft-missing');
+    const applyDraft = document.getElementById('ai-draft-apply');
+    const discardDraft = document.getElementById('ai-draft-discard');
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 
     draftButton.addEventListener('click', async () => {
@@ -88,6 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!text) {
             notice.textContent = 'Please describe the issue before using AI.';
             notice.hidden = false;
+            review.hidden = true;
             description.focus();
             return;
         }
@@ -106,16 +132,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Unable to create a draft.');
 
-            title.value = data.title || '';
-            category.value = data.category || 'Other';
-            description.value = data.description || text;
+            previewTitle.value = data.title || '';
+            previewCategory.value = data.category || 'Other';
+            previewDescription.value = data.description || text;
+            previewSummary.textContent = 'Summary: ' + (data.summary || text);
+            previewMissing.textContent = 'Missing details: ' + (
+                data.missing_details || 'No missing details were identified.'
+            );
+            review.hidden = false;
             notice.textContent = (
                 (data.fallback
                     ? 'Offline draft generated.'
                     : 'AI draft generated.')
                 + ' Recommended priority: ' + (data.priority || 'Low')
                 + '. ' + (data.priority_reason || '')
-                + ' Review and approve all content before submitting.'
+                + ' Nothing was changed until you choose Apply AI draft.'
             );
             notice.hidden = false;
         } catch (error) {
@@ -125,6 +156,23 @@ document.addEventListener('DOMContentLoaded', () => {
             draftButton.disabled = false;
             loading.hidden = true;
         }
+    });
+
+    applyDraft.addEventListener('click', () => {
+        title.value = previewTitle.value;
+        category.value = previewCategory.value || 'Other';
+        description.value = previewDescription.value;
+        review.hidden = true;
+        notice.textContent = 'AI draft applied. You can edit it again before submitting.';
+        notice.hidden = false;
+        title.focus();
+    });
+
+    discardDraft.addEventListener('click', () => {
+        review.hidden = true;
+        notice.textContent = 'Original text kept. No AI changes were applied.';
+        notice.hidden = false;
+        description.focus();
     });
 });
 </script>

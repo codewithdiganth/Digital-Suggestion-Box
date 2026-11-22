@@ -4,6 +4,7 @@ from functools import wraps
 import secrets
 import os
 import re
+import time
 import uuid
 
 from flask import (
@@ -26,11 +27,15 @@ from app.ai_service import (
     generate_suggestion_draft,
     generate_priority_recommendation,
     explain_tracking_status,
+    find_similar_suggestions,
+    generate_staff_summary,
 )
 from app.models import Suggestion, User, ActivityLog, StatusHistory
 
 
 ALLOWED_PHOTO_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
+login_attempts = {}
+login_attempts_lock = __import__("threading").Lock()
 
 
 def generate_tracking_id():
@@ -98,6 +103,24 @@ def staff_required(view_function):
 
 
 def register_routes(app):
+
+    @app.errorhandler(404)
+    def page_not_found(error):
+        return render_template("index.html"), 404
+
+    @app.errorhandler(413)
+    def upload_too_large(error):
+        if request.accept_mimetypes.best == "application/json":
+            return jsonify({"error": "The uploaded file is too large."}), 413
+        flash("The uploaded file is too large.", "error")
+        return redirect(url_for("submit"))
+
+    @app.errorhandler(500)
+    def internal_server_error(error):
+        db.session.rollback()
+        if request.accept_mimetypes.best == "application/json":
+            return jsonify({"error": "An unexpected error occurred."}), 500
+        return make_response("An unexpected error occurred.", 500)
 
     def suggestion_payload(suggestion):
         return {
@@ -284,7 +307,6 @@ def register_routes(app):
         return jsonify({"suggestion": suggestion_payload(suggestion)})
 
     @app.route("/api/suggestions/<int:suggestion_id>", methods=["PATCH"])
-    @csrf.exempt
     @staff_required
     def api_update_suggestion(suggestion_id):
         suggestion = db.session.get(Suggestion, suggestion_id)
@@ -321,7 +343,6 @@ def register_routes(app):
         return jsonify({"message": "Suggestion updated", "suggestion": suggestion_payload(suggestion)})
 
     @app.route("/api/suggestions/<tracking_id>", methods=["PATCH"])
-    @csrf.exempt
     @staff_required
     def api_update_suggestion_by_tracking_id(tracking_id):
         normalized_id = normalize_tracking_id(tracking_id)
@@ -450,6 +471,12 @@ def register_routes(app):
             "provider": result["provider"],
         })
 
+    @app.route("/api/ai/chat/reset", methods=["POST"])
+    def ai_chat_reset():
+        session.pop("ai_chat_history", None)
+        session.pop("_ai_chat_client", None)
+        return jsonify({"message": "A new conversation has started."}), 200
+
     @app.route("/api/ai/suggestion-draft", methods=["POST"])
     def ai_suggestion_draft():
         if (
@@ -499,6 +526,20 @@ def register_routes(app):
         if request.method == "POST":
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
+            login_key = f"login:{request.remote_addr}:{username.lower()}"
+            now = time.monotonic()
+            with login_attempts_lock:
+                timestamps = [
+                    timestamp
+                    for timestamp in login_attempts.get(login_key, [])
+                    if now - timestamp < 900
+                ]
+                if len(timestamps) >= 5:
+                    login_attempts[login_key] = timestamps
+                    flash("Too many login attempts. Please try again later.", "error")
+                    return redirect(url_for("login"))
+                timestamps.append(now)
+                login_attempts[login_key] = timestamps
 
             user = User.query.filter_by(username=username).first()
 
@@ -659,6 +700,41 @@ def register_routes(app):
             .limit(8)
             .all()
         )
+        all_suggestions = Suggestion.query.all()
+        week_start = datetime.utcnow() - timedelta(days=7)
+        weekly_suggestions = Suggestion.query.filter(
+            Suggestion.created_at >= week_start
+        ).all()
+        weekly_category_counts = dict(
+            db.session.query(
+                Suggestion.category,
+                db.func.count(Suggestion.id),
+            )
+            .filter(Suggestion.created_at >= week_start)
+            .group_by(Suggestion.category)
+            .all()
+        )
+        weekly_report = {
+            "received": len(weekly_suggestions),
+            "pending": sum(
+                1 for suggestion in all_suggestions
+                if suggestion.status in ["Received", "In Progress"]
+            ),
+            "completed": sum(
+                1 for suggestion in all_suggestions
+                if suggestion.status == "Solved"
+            ),
+            "common_category": (
+                max(weekly_category_counts, key=weekly_category_counts.get)
+                if weekly_category_counts else "No submissions"
+            ),
+        }
+        staff_summary = generate_staff_summary(
+            all_suggestions,
+            status_counts=status_counts,
+            category_counts=dict(category_counts),
+        )
+        similar_suggestions = find_similar_suggestions(all_suggestions)
 
         return render_template(
             "dashboard.html",
@@ -673,7 +749,10 @@ def register_routes(app):
                 for priority in ["Low", "Medium", "High", "Urgent"]
             },
             high_priority_count=high_priority_count,
-            recent_activity=recent_activity
+            recent_activity=recent_activity,
+            staff_summary=staff_summary,
+            similar_suggestions=similar_suggestions,
+            weekly_report=weekly_report,
         )
 
     # ---------------- SUGGESTION MANAGEMENT ----------------

@@ -1,5 +1,6 @@
 
 import os
+import secrets
 from datetime import timedelta
 from dotenv import load_dotenv
 
@@ -11,7 +12,9 @@ APP_ENV = os.environ.get("APP_ENV", "development").lower()
 
 
 class Config:
-    SECRET_KEY = os.environ.get("SECRET_KEY")
+    SECRET_KEY = os.environ.get("SECRET_KEY") or (
+        secrets.token_hex(32) if APP_ENV != "production" else None
+    )
 
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         "DATABASE_URL",
