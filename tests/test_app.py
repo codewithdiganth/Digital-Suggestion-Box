@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 os.environ["DATABASE_URL"] = "sqlite://"
 
 from app import create_app, db
+from app.account_service import send_account_setup_email
 from app.models import ActivityLog, StatusHistory, Suggestion, User
 from app.ai_service import (
     find_similar_suggestions,
@@ -24,6 +25,9 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
         cls.app.config.update(
             TESTING=True,
             WTF_CSRF_ENABLED=False,
+            MAIL_SERVER="smtp.example.test",
+            MAIL_DEFAULT_SENDER="noreply@example.test",
+            PUBLIC_BASE_URL="https://suggestions.example.test",
         )
 
     def setUp(self):
@@ -585,31 +589,212 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
         self.assertIn(b"Test Action", response.data)
         self.assertIn(b"Test activity details.", response.data)
 
-    def test_password_reset_does_not_store_password_in_session(self):
+    def test_admin_creates_citizen_and_user_sets_password_with_one_time_link(self):
         self.sign_in_as(self.admin_id)
-        response = self.client.post(
-            f"/admin/users/{self.staff_id}/reset-password"
-        )
+        with patch("app.routes.send_account_setup_email") as send_email:
+            response = self.client.post(
+                "/admin/users/create",
+                data={
+                    "full_name": "Asha Citizen",
+                    "mobile_number": "+1 (555) 123-4567",
+                    "email": "Asha@example.test",
+                },
+                follow_redirects=True,
+            )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.headers["Cache-Control"], "no-store")
-        self.assertEqual(response.headers["Pragma"], "no-cache")
-
-        match = re.search(
-            rb'<input\s+type="text"\s+value="([^"]+)"',
-            response.data,
-        )
-        self.assertIsNotNone(match)
-        temporary_password = match.group(1).decode()
+        self.assertIn(b"User USR-", response.data)
+        send_email.assert_called_once()
+        setup_token = send_email.call_args.args[1]
 
         with self.app.app_context():
-            staff = db.session.get(User, self.staff_id)
-            self.assertTrue(
-                check_password_hash(staff.password_hash, temporary_password)
-            )
-            self.assertTrue(staff.must_change_password)
+            citizen = User.query.filter_by(full_name="Asha Citizen").one()
+            public_user_id = citizen.public_user_id
+            self.assertEqual(citizen.email, "asha@example.test")
+            self.assertEqual(citizen.mobile_number, "+15551234567")
+            self.assertEqual(citizen.role, "citizen")
+            self.assertTrue(public_user_id.startswith("USR-"))
+            self.assertTrue(citizen.must_change_password)
+            self.assertEqual(citizen.username, public_user_id)
 
-        with self.client.session_transaction() as session:
-            self.assertNotIn("reset_password_result", session)
+        self.client.get("/logout")
+        setup = self.client.get(f"/account/setup/{setup_token}")
+        self.assertEqual(setup.status_code, 200)
+        changed = self.client.post(
+            f"/account/setup/{setup_token}",
+            data={
+                "new_password": "new-citizen-password",
+                "confirm_password": "new-citizen-password",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(changed.status_code, 200)
+        self.assertIn(b"Password set successfully", changed.data)
+
+        with self.app.app_context():
+            citizen = User.query.filter_by(full_name="Asha Citizen").one()
+            self.assertFalse(citizen.must_change_password)
+            self.assertIsNone(citizen.setup_token_nonce)
+            self.assertTrue(
+                check_password_hash(
+                    citizen.password_hash,
+                    "new-citizen-password",
+                )
+            )
+
+        reused = self.client.get(f"/account/setup/{setup_token}")
+        self.assertEqual(reused.status_code, 302)
+        user_login = self.client.post(
+            "/login",
+            data={
+                "identifier": public_user_id,
+                "password": "new-citizen-password",
+            },
+        )
+        self.assertEqual(user_login.status_code, 302)
+        self.assertEqual(
+            self.client.get("/").status_code,
+            200,
+        )
+        self.assertEqual(self.client.get("/admin/users").status_code, 403)
+        self.assertEqual(self.client.get("/dashboard").status_code, 403)
+
+    def test_create_user_rejects_invalid_and_duplicate_contacts(self):
+        self.sign_in_as(self.admin_id)
+        with patch("app.routes.send_account_setup_email"):
+            invalid = self.client.post(
+                "/admin/users/create",
+                data={
+                    "full_name": "Invalid Citizen",
+                    "mobile_number": "123",
+                    "email": "invalid",
+                },
+            )
+            self.assertEqual(invalid.status_code, 302)
+
+            valid = {
+                "full_name": "Asha Citizen",
+                "mobile_number": "+15551234567",
+                "email": "asha@example.test",
+            }
+            self.client.post("/admin/users/create", data=valid)
+            duplicate_email = dict(
+                valid,
+                full_name="Second Citizen",
+                mobile_number="+15557654321",
+            )
+            response = self.client.post(
+                "/admin/users/create",
+                data=duplicate_email,
+                follow_redirects=True,
+            )
+            duplicate_mobile = dict(
+                valid,
+                full_name="Third Citizen",
+                email="third@example.test",
+            )
+            mobile_response = self.client.post(
+                "/admin/users/create",
+                data=duplicate_mobile,
+                follow_redirects=True,
+            )
+        self.assertIn(b"email address already exists", response.data)
+        self.assertIn(b"mobile number already exists", mobile_response.data)
+        with self.app.app_context():
+            self.assertEqual(
+                User.query.filter_by(role="citizen").count(),
+                1,
+            )
+
+    def test_admin_search_edit_and_role_protection(self):
+        self.sign_in_as(self.admin_id)
+        with patch("app.routes.send_account_setup_email"):
+            self.client.post(
+                "/admin/users/create",
+                data={
+                    "full_name": "Searchable Citizen",
+                    "mobile_number": "+15551234567",
+                    "email": "search@example.test",
+                },
+            )
+
+        with self.app.app_context():
+            citizen_id = User.query.filter_by(
+                email="search@example.test"
+            ).one().id
+        search = self.client.get("/admin/users?q=Searchable")
+        self.assertEqual(search.status_code, 200)
+        self.assertIn(b"Searchable Citizen", search.data)
+        edit = self.client.post(
+            f"/admin/users/{citizen_id}/edit",
+            data={
+                "full_name": "Updated Citizen",
+                "mobile_number": "+15559876543",
+                "email": "updated@example.test",
+                "role": "citizen",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(edit.status_code, 200)
+        self.assertIn(b"Updated Citizen", edit.data)
+
+        self.client.get("/logout")
+        self.sign_in_as(self.staff_id)
+        self.assertEqual(self.client.get("/admin/users").status_code, 403)
+        self.assertEqual(
+            self.client.get(f"/admin/users/{citizen_id}/edit").status_code,
+            403,
+        )
+
+    def test_password_reset_sends_setup_link_not_password(self):
+        self.sign_in_as(self.admin_id)
+        with self.app.app_context():
+            staff = db.session.get(User, self.staff_id)
+            staff.email = "staff@example.test"
+            db.session.commit()
+
+        with patch("app.routes.send_account_setup_email") as send_email:
+            response = self.client.post(
+                f"/admin/users/{self.staff_id}/reset-password",
+                follow_redirects=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"setup link was sent", response.data)
+        send_email.assert_called_once()
+        token = send_email.call_args.args[1]
+        self.assertTrue(token)
+        self.assertNotIn(b"Temporary Password", response.data)
+        with self.app.app_context():
+            staff = db.session.get(User, self.staff_id)
+            self.assertTrue(staff.must_change_password)
+            self.assertIsNotNone(staff.setup_token_nonce)
+
+    def test_setup_email_contains_user_id_and_secure_link_only(self):
+        user = User(
+            username="USR-TEST12345",
+            public_user_id="USR-TEST12345",
+            full_name="Email Test",
+            email="email@example.test",
+            role="citizen",
+            password_hash="already-hashed",
+        )
+        with (
+            self.app.test_request_context("/"),
+            patch("app.account_service.smtplib.SMTP") as smtp_factory,
+        ):
+            send_account_setup_email(user, "one-time-token")
+
+        smtp = smtp_factory.return_value.__enter__.return_value
+        message = smtp.send_message.call_args.args[0]
+        content = message.get_content()
+        self.assertIn("USR-TEST12345", content)
+        self.assertIn(
+            "https://suggestions.example.test/account/setup/one-time-token",
+            content,
+        )
+        self.assertNotIn("already-hashed", content)
+        self.assertNotIn("temporary password", content.lower())
+        smtp.starttls.assert_called_once()
 
 
 if __name__ == "__main__":

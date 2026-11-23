@@ -7,18 +7,18 @@
 
 <div class="form-container">
 
-    <h2>Admin / Staff Login</h2>
+    <h2>Account Login</h2>
 
     <form method="POST" action="{{ url_for('login') }}">
 
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-        <label for="username">Username</label>
+        <label for="identifier">User ID or Username</label>
         <input
             type="text"
-            id="username"
-            name="username"
-            placeholder="Enter your username"
+            id="identifier"
+            name="identifier"
+            placeholder="Enter your User ID or username"
             required
             autocomplete="username"
         >

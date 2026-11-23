@@ -10,7 +10,8 @@ A modern Flask civic engagement platform for submitting, reviewing and tracking 
 - AI priority recommendations
 - AI-assisted explanation of status and officer remarks
 - Staff suggestion search, filters and status updates
-- Administrator account, password and activity management
+- Administrator account creation, contact management and activity tracking
+- Email-based first-time password setup and password reset links
 - Ward, category, status and AI-priority dashboards
 - CSRF protection, password hashing and role-based access
 - Status history for citizen tracking
@@ -33,7 +34,7 @@ Staff and citizen roles are enforced in Flask routes. Gemini API keys are read f
 
 ## Database design
 
-- `User`: staff and administrator accounts, password hash, role and login lock fields.
+- `User`: citizen, staff and administrator accounts, unique User ID and contact details, password hash, role, setup token and login lock fields.
 - `Suggestion`: citizen details, tracking ID, category, status, ward, photo and AI priority.
 - `ActivityLog`: administrative actions and status-change audit records.
 - `StatusHistory`: ordered status and remark history for each suggestion.
@@ -74,6 +75,10 @@ Configure:
 - `SESSION_COOKIE_SECURE`: `true` behind HTTPS
 - `GEMINI_API_KEY`: optional Google Gemini API key
 - `GEMINI_MODEL`: normally `gemini-2.5-flash`
+- `MAIL_SERVER`, `MAIL_PORT`, `MAIL_USE_TLS` or `MAIL_USE_SSL`: SMTP server settings
+- `MAIL_USERNAME`, `MAIL_PASSWORD`: optional SMTP login
+- `MAIL_DEFAULT_SENDER`: verified sender address
+- `PUBLIC_BASE_URL`: canonical site URL used in one-time password setup links (HTTPS in production)
 
 Never commit `.env` or expose API keys in browser JavaScript.
 
@@ -93,7 +98,7 @@ flask --app run.py db current
 flask --app run.py db heads
 ```
 
-The migration head is `e6a1c9d2f804`.
+The migration head is `91f3d4c82a10`.
 
 ## Tests
 
@@ -104,10 +109,12 @@ python -m unittest discover -s tests -v
 
 ## Roles
 
-- Citizens/public users can submit and track suggestions.
+- Citizens/public users can submit and track suggestions. Registered citizens can also sign in with their generated User ID.
 - Staff can view and update suggestions and view staff activity.
-- Administrators can perform staff functions and manage users and account activity.
+- Administrators can perform staff functions, create and search citizen accounts, edit account details, activate/deactivate accounts, and email password setup links.
 - Staff and administrators cannot submit citizen suggestions.
+
+Newly created accounts receive a single-use password setup link by email. The link expires after 24 hours; plaintext passwords are never emailed or shown to administrators. Configure SMTP and `PUBLIC_BASE_URL` before using account creation or password reset.
 
 ## JSON API
 

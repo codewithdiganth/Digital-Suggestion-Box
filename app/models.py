@@ -42,11 +42,17 @@ class Suggestion(db.Model):
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
 
+    public_user_id = db.Column(db.String(20), unique=True, nullable=True)
+
     username = db.Column(
         db.String(80),
         unique=True,
         nullable=False
     )
+
+    full_name = db.Column(db.String(100), nullable=True)
+    mobile_number = db.Column(db.String(16), unique=True, nullable=True)
+    email = db.Column(db.String(254), unique=True, nullable=True)
 
     password_hash = db.Column(db.String(255), nullable=False)
 
@@ -71,6 +77,7 @@ class User(UserMixin, db.Model):
     )
 
     locked_until = db.Column(db.DateTime, nullable=True)
+    setup_token_nonce = db.Column(db.String(64), nullable=True)
 
     created_at = db.Column(
         db.DateTime,

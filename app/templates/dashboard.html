@@ -8,8 +8,19 @@
         <span class="eyebrow">Operations overview</span>
         <h1>Suggestion Dashboard</h1>
     </div>
-    <a class="btn btn-primary" href="{{ url_for('manage_suggestions') }}">View suggestions <span>→</span></a>
+    <div>
+        <a class="btn btn-primary" href="{{ url_for('manage_suggestions') }}">View suggestions <span>→</span></a>
+    </div>
 </div>
+
+{% if current_user.role == "admin" %}
+<section class="form-container">
+    <span class="eyebrow">Account administration</span>
+    <h2>Create User</h2>
+    <p>Create a citizen account and email a one-time password setup link.</p>
+    <a class="btn btn-primary" href="{{ url_for('create_user') }}">Create User</a>
+</section>
+{% endif %}
 
 <p>Total suggestions: <strong>{{ total_suggestions }}</strong></p>
 <section class="stat-grid" aria-label="Suggestion totals">

@@ -68,13 +68,18 @@ Current automated coverage includes public pages, citizen submission, tracking, 
 USER
 -----
 id PK
+public_user_id UNIQUE
 username
+full_name
+mobile_number UNIQUE
+email UNIQUE
 password_hash
 role
 is_active
 must_change_password
 failed_login_attempts
 locked_until
+setup_token_nonce
 created_at
 
 SUGGESTION
