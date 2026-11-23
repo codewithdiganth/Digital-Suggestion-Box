@@ -77,7 +77,13 @@ Configure:
 
 Never commit `.env` or expose API keys in browser JavaScript.
 
-Without `GEMINI_API_KEY`, AI endpoints provide clearly labeled offline fallback responses.
+Without `GEMINI_API_KEY`, the chat still provides basic guidance for submitting
+and tracking suggestions, and uses the database for a status lookup when the
+citizen supplies an 8-digit tracking ID. Other AI answers require the server-side
+Gemini key. Add it to `.env` and restart Flask; never put the key in browser code.
+Current government schemes and policies are not verified by the assistant, so
+citizens are directed to official local-government sources rather than given
+guessed information.
 
 ## Database migrations
 

@@ -459,11 +459,42 @@ def register_routes(app):
             }), 429
 
         history = session.get("ai_chat_history", [])
-        result = generate_chat_reply(message, history)
+        tracking_match = re.search(r"(?<!\d)(\d{8})(?!\d)", message)
+        tracking_question = re.search(
+            r"\b(track(?:ing)?|status|progress|update)\b",
+            message,
+            re.IGNORECASE,
+        )
+        if tracking_match and tracking_question:
+            suggestion = Suggestion.query.filter_by(
+                tracking_id=tracking_match.group(1)
+            ).first()
+            if suggestion is None:
+                result = {
+                    "reply": (
+                        "I couldn’t find a suggestion with that tracking ID. "
+                        "Please check the 8 digits and try again."
+                    ),
+                    "fallback": True,
+                    "provider": "application database",
+                }
+            else:
+                result = {
+                    "reply": (
+                        f"The current status for tracking ID "
+                        f"{suggestion.tracking_id} is {suggestion.status}. "
+                        "For the latest update, open the Track page and enter "
+                        "your ID."
+                    ),
+                    "fallback": True,
+                    "provider": "application database",
+                }
+        else:
+            result = generate_chat_reply(message, history)
 
-        history.append({"role": "user", "text": message[:1000]})
-        history.append({"role": "assistant", "text": result["reply"][:2000]})
-        session["ai_chat_history"] = history[-20:]
+        history.append({"role": "user", "text": message[:150]})
+        history.append({"role": "assistant", "text": result["reply"][:150]})
+        session["ai_chat_history"] = history[-4:]
 
         return jsonify({
             "reply": result["reply"],

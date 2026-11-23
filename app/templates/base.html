@@ -117,7 +117,9 @@
             const chatInput = document.getElementById('ai-chat-input');
             const chatMessages = document.getElementById('ai-chat-messages');
             const chatLoading = document.getElementById('ai-chat-loading');
+            const chatSendButton = chatForm.querySelector('button[type="submit"]');
             const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+            let chatPending = false;
 
             const setChatOpen = (open) => {
                 chatPanel.hidden = !open;
@@ -125,41 +127,68 @@
                 if (open) chatInput.focus();
             };
 
+            const appendChatMessage = (text, role) => {
+                const bubble = document.createElement('div');
+                bubble.className = `ai-message ${role}`;
+                bubble.textContent = text;
+                chatMessages.appendChild(bubble);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            };
+
+            const readChatResponse = async (response, defaultError) => {
+                let data;
+                try {
+                    data = await response.json();
+                } catch (error) {
+                    throw new Error(defaultError);
+                }
+                if (!response.ok) {
+                    throw new Error(data.error || defaultError);
+                }
+                return data;
+            };
+
             chatToggle.addEventListener('click', () => setChatOpen(chatPanel.hidden));
             chatClose.addEventListener('click', () => setChatOpen(false));
             chatNew.addEventListener('click', async () => {
+                if (chatPending) return;
+                chatNew.disabled = true;
                 try {
-                    await fetch('{{ url_for("ai_chat_reset") }}', {
+                    const response = await fetch('{{ url_for("ai_chat_reset") }}', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                             'X-CSRFToken': csrfToken
                         }
                     });
+                    await readChatResponse(response, 'Could not start a new conversation.');
+                    chatMessages.replaceChildren();
+                    appendChatMessage(
+                        'Hello! This is a new conversation. How can I help with a local civic issue?',
+                        'assistant'
+                    );
+                    chatInput.value = '';
+                    chatInput.focus(                    );
                 } catch (error) {
-                    // The browser can still start a fresh visible conversation.
+                    appendChatMessage(error.message, 'assistant');
+                } finally {
+                    chatNew.disabled = false;
                 }
-                chatMessages.replaceChildren();
-                const welcome = document.createElement('div');
-                welcome.className = 'ai-message assistant';
-                welcome.textContent = 'Hello! This is a new conversation. How can I help with a local civic issue?';
-                chatMessages.appendChild(welcome);
-                chatInput.value = '';
-                chatInput.focus();
             });
 
             chatForm.addEventListener('submit', async (event) => {
                 event.preventDefault();
+                if (chatPending) return;
                 const message = chatInput.value.trim();
                 if (!message) return;
 
-                const userBubble = document.createElement('div');
-                userBubble.className = 'ai-message user';
-                userBubble.textContent = message;
-                chatMessages.appendChild(userBubble);
+                chatPending = true;
+                chatInput.disabled = true;
+                chatSendButton.disabled = true;
+                chatNew.disabled = true;
+                appendChatMessage(message, 'user');
                 chatInput.value = '';
                 chatLoading.hidden = false;
-                chatMessages.scrollTop = chatMessages.scrollHeight;
 
                 try {
                     const response = await fetch('{{ url_for("ai_chat") }}', {
@@ -170,20 +199,22 @@
                         },
                         body: JSON.stringify({ message })
                     });
-                    const data = await response.json();
-
-                    const assistantBubble = document.createElement('div');
-                    assistantBubble.className = 'ai-message assistant';
-                    assistantBubble.textContent = data.reply || data.error || 'The AI assistant could not respond.';
-                    chatMessages.appendChild(assistantBubble);
+                    const data = await readChatResponse(
+                        response,
+                        'The assistant could not respond. Please try again.'
+                    );
+                    appendChatMessage(data.reply || 'The assistant returned an empty response.', 'assistant');
                 } catch (error) {
-                    const assistantBubble = document.createElement('div');
-                    assistantBubble.className = 'ai-message assistant';
-                    assistantBubble.textContent = 'The assistant could not connect. Please try again later.';
-                    chatMessages.appendChild(assistantBubble);
+                    appendChatMessage(
+                        error.message || 'The assistant could not connect. Please try again later.',
+                        'assistant'
+                    );
                 } finally {
+                    chatPending = false;
                     chatLoading.hidden = true;
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                    chatInput.disabled = false;
+                    chatSendButton.disabled = false;
+                    chatNew.disabled = false;
                     chatInput.focus();
                 }
             });

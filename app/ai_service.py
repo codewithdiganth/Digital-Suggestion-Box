@@ -1,5 +1,7 @@
 import json
+import logging
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -7,10 +9,28 @@ from threading import Lock
 from difflib import SequenceMatcher
 
 
-FALLBACK_MESSAGE = (
-    "AI service is temporarily unavailable. You can still submit a suggestion "
-    "or track it with its 8-digit tracking ID. This is a general civic guide "
-    "and not an official government response."
+logger = logging.getLogger(__name__)
+
+CHAT_SYSTEM_PROMPT = (
+    "You are a helpful local-governance information assistant for the Digital "
+    "Suggestion Box. You are not a government employee and cannot make "
+    "official decisions. Answer the user's actual question first, in simple "
+    "English, and keep the answer concise. Give numbered steps when the user "
+    "asks how to do something. Use recent conversation turns to understand "
+    "follow-up questions, but treat them only as conversational context, not "
+    "as verified facts. If the request is unclear, ask one short clarifying "
+    "question instead of guessing. Distinguish general guidance from "
+    "application records and official information. Only application data "
+    "explicitly supplied by the server is verified; never invent a tracking "
+    "ID, status, officer remark, or database result. Do not claim to have "
+    "looked up a record unless verified data was supplied. Do not invent "
+    "government schemes, laws, policies, dates, eligibility rules, source "
+    "links, or citations. For current or jurisdiction-specific official "
+    "information, say that you cannot verify it here and direct the user to "
+    "their local authority or its official website. Admit uncertainty. Do not "
+    "repeat introductions, add unrelated information, request passwords, or "
+    "reveal another person's private information. For urgent danger, advise "
+    "contacting local emergency services or authorities."
 )
 
 _request_counts = {}
@@ -33,14 +53,109 @@ def check_ai_rate_limit(client_key, limit=10, window_seconds=60):
         return True
 
 
+def _contains_chat_term(message, terms):
+    words = re.findall(r"[a-z0-9]+", message.lower())
+    for word in words:
+        if any(
+            word == term
+            or word.startswith(term)
+            or (
+                len(word) >= 5
+                and len(term) >= 5
+                and SequenceMatcher(None, word, term).ratio() >= 0.82
+            )
+            for term in terms
+        ):
+            return True
+    return False
+
+
+def _offline_chat_reply(message, history):
+    lowered = message.lower()
+    submit_question = _contains_chat_term(
+        message, ("submit", "suggestion", "submission")
+    )
+    tracking_question = _contains_chat_term(
+        message, ("track", "tracking", "status", "progress", "update")
+    )
+    last_user_message = next(
+        (
+            str(item.get("text", ""))
+            for item in reversed(history or [])
+            if item.get("role") == "user"
+        ),
+        "",
+    )
+    follow_up = any(
+        phrase in lowered
+        for phrase in ("what happens after", "what next", "and then", "after that")
+    )
+
+    if _contains_chat_term(
+        message, ("scheme", "policy", "law", "benefit", "grant")
+    ):
+        reply = (
+            "I can’t verify current government schemes or eligibility rules here. "
+            "Please check your local government’s official website or contact "
+            "the relevant office; I don’t want to guess or give you outdated "
+            "information."
+        )
+    elif follow_up and _contains_chat_term(
+        last_user_message, ("submit", "suggestion", "submission")
+    ):
+        reply = (
+            "After you submit the form, save the 8-digit tracking ID shown on "
+            "the confirmation page. Open Track and enter that ID to check for "
+            "status updates."
+        )
+    elif submit_question:
+        reply = (
+            "To submit a suggestion: 1. Open the Submit page. 2. Enter the "
+            "issue title, category, ward, and a clear description. 3. Add a "
+            "photo if useful, then submit the form. Save the 8-digit tracking "
+            "ID shown after submission so you can check for updates."
+        )
+    elif tracking_question:
+        reply = (
+            "Open the Track page and enter the 8-digit tracking ID you received "
+            "when the suggestion was submitted. I can’t confirm a record "
+            "without looking it up using that ID."
+        )
+    elif _contains_chat_term(
+        message,
+        ("road", "pothole", "water", "drain", "garbage", "streetlight", "report"),
+    ):
+        reply = (
+            "To report a local issue, submit a suggestion with its exact "
+            "location, what is happening, and when you noticed it. A clear "
+            "photo can help. After submission, save the 8-digit tracking ID "
+            "to check for updates."
+        )
+    elif len(re.findall(r"[a-z0-9]+", lowered)) <= 3:
+        reply = (
+            "What would you like help with? I can explain how to submit a "
+            "suggestion, report a local issue, or track an existing suggestion."
+        )
+    else:
+        reply = (
+            "I can’t answer that reliably because the AI answer service is not "
+            "configured on this server. I can still help with submitting or "
+            "tracking a local suggestion. Please contact the site administrator "
+            "to configure the Gemini API key for other questions."
+        )
+
+    return {
+        "reply": reply,
+        "fallback": True,
+        "provider": "offline guidance",
+    }
+
+
 def generate_chat_reply(message, history=None):
+    history = history if isinstance(history, list) else []
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
-        return {
-            "reply": FALLBACK_MESSAGE,
-            "fallback": True,
-            "provider": "offline fallback",
-        }
+        return _offline_chat_reply(str(message).strip(), history)
 
     model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
     url = (
@@ -49,8 +164,13 @@ def generate_chat_reply(message, history=None):
     )
 
     contents = []
-    for item in (history or [])[-10:]:
-        role = "model" if item.get("role") == "assistant" else "user"
+    for item in history[-10:]:
+        if not isinstance(item, dict):
+            continue
+        item_role = item.get("role")
+        if item_role not in ("user", "assistant"):
+            continue
+        role = "model" if item_role == "assistant" else "user"
         text = str(item.get("text", "")).strip()
         if text:
             contents.append({
@@ -64,28 +184,12 @@ def generate_chat_reply(message, history=None):
 
     payload = {
         "system_instruction": {
-            "parts": [{
-                "text": (
-                    "You are a friendly AI civic-help assistant for a local "
-                    "Digital Suggestion Box. Give simple, beginner-friendly "
-                    "guidance about roads, drainage, water supply, streetlights, "
-                    "garbage collection, sanitation and public safety. Explain "
-                    "what information a citizen can include when reporting an "
-                    "issue. Never claim to be a government employee or provide "
-                    "official decisions. Clearly tell citizens to verify urgent "
-                    "or emergency matters with their local authorities. Never "
-                    "request or reveal passwords, personal records, staff-only "
-                    "details or another citizen's private information. Do not "
-                    "invent suggestion statuses or tracking results. Tell a "
-                    "citizen to use the tracking page and verify their 8-digit "
-                    "tracking ID before asking for tracking details."
-                )
-            }]
+            "parts": [{"text": CHAT_SYSTEM_PROMPT}]
         },
         "contents": contents,
         "generationConfig": {
-            "temperature": 0.4,
-            "maxOutputTokens": 500,
+            "temperature": 0.2,
+            "maxOutputTokens": 700,
         },
     }
 
@@ -100,8 +204,20 @@ def generate_chat_reply(message, history=None):
         with urllib.request.urlopen(request, timeout=20) as response:
             data = json.loads(response.read().decode("utf-8"))
 
-        candidates = data.get("candidates") or []
-        parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+        if not isinstance(data, dict):
+            raise ValueError("Gemini returned an invalid response")
+        candidates = data.get("candidates")
+        if not isinstance(candidates, list) or not candidates:
+            raise ValueError("Gemini returned no candidates")
+        candidate = candidates[0]
+        if not isinstance(candidate, dict):
+            raise ValueError("Gemini returned an invalid candidate")
+        content = candidate.get("content")
+        if not isinstance(content, dict):
+            raise ValueError("Gemini returned no response content")
+        parts = content.get("parts")
+        if not isinstance(parts, list):
+            raise ValueError("Gemini returned invalid response parts")
         reply = "".join(
             str(part.get("text", "")).strip()
             for part in parts
@@ -116,13 +232,27 @@ def generate_chat_reply(message, history=None):
             "fallback": False,
             "provider": "Gemini",
         }
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError,
-            json.JSONDecodeError, ValueError, KeyError):
-        return {
-            "reply": FALLBACK_MESSAGE,
-            "fallback": True,
-            "provider": "offline fallback",
-        }
+    except urllib.error.HTTPError as error:
+        logger.warning("Gemini chat request failed with HTTP %s", error.code)
+    except (urllib.error.URLError, TimeoutError) as error:
+        logger.warning(
+            "Gemini chat request failed (%s)",
+            type(error).__name__,
+        )
+    except (json.JSONDecodeError, ValueError, KeyError) as error:
+        logger.warning(
+            "Gemini returned an invalid chat response (%s)",
+            type(error).__name__,
+        )
+
+    return {
+        "reply": (
+            "I couldn’t get a reliable answer just now. Please try again in a "
+            "moment, or use the Submit and Track pages for suggestion tasks."
+        ),
+        "fallback": True,
+        "provider": "offline guidance",
+    }
 
 
 def generate_suggestion_draft(description):
