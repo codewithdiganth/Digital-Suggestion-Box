@@ -209,6 +209,7 @@ a { color: inherit; }
     background: var(--paper); border: 1px solid var(--line); border-radius: 18px;
     padding: 32px; margin-bottom: 18px;
 }
+.create-user-container { width: min(100%, 680px); margin-inline: auto; }
 .form-container h2 { font-size: 28px; margin-bottom: 8px; }
 .form-container hr { border: 0; border-top: 1px solid var(--line); margin: 28px 0; }
 .form-container table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -220,6 +221,9 @@ a { color: inherit; }
 .form-container form:not(.modern-form) input, .form-container form:not(.modern-form) select, .form-container form:not(.modern-form) textarea {
     width: 100%; border: 1px solid #ccd5cd; border-radius: 9px; padding: 12px 14px; font: 14px "DM Sans";
 }
+.form-hint { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+.field-error { display: block; min-height: 1.4em; color: #a63d27; font-size: 13px; margin-top: 4px; }
+.form-container [aria-invalid="true"] { border-color: #c96a48; }
 .form-container form:not(.modern-form) button { margin-top: 14px; background: var(--green); color: white; border: 0; border-radius: 100px; padding: 11px 18px; font-weight: 800; }
 
 .sr-only {
@@ -452,6 +456,7 @@ a { color: inherit; }
     .main-nav a::after { display: none; }
     .main-nav .nav-action { margin-top: 4px; text-align: center; }
     .page-shell { padding-top: 20px; }
+    .create-user-container { padding: 22px; }
     .hero { min-height: 480px; border-radius: 18px; }
     .hero-copy { padding: 44px 24px; }
     .hero h1 { font-size: 43px; letter-spacing: -2.4px; }

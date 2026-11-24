@@ -597,7 +597,7 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
                 data={
                     "full_name": "Asha Citizen",
                     "mobile_number": "+1 (555) 123-4567",
-                    "email": "Asha@example.test",
+                    "email": "Asha@example.com",
                 },
                 follow_redirects=True,
             )
@@ -609,7 +609,7 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
         with self.app.app_context():
             citizen = User.query.filter_by(full_name="Asha Citizen").one()
             public_user_id = citizen.public_user_id
-            self.assertEqual(citizen.email, "asha@example.test")
+            self.assertEqual(citizen.email, "asha@example.com")
             self.assertEqual(citizen.mobile_number, "+15551234567")
             self.assertEqual(citizen.role, "citizen")
             self.assertTrue(public_user_id.startswith("USR-"))
@@ -665,16 +665,17 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
                 "/admin/users/create",
                 data={
                     "full_name": "Invalid Citizen",
-                    "mobile_number": "123",
+                    "mobile_number": "+15551234567",
                     "email": "invalid",
                 },
             )
-            self.assertEqual(invalid.status_code, 302)
+            self.assertEqual(invalid.status_code, 200)
+            self.assertIn(b"Enter a valid email address.", invalid.data)
 
             valid = {
                 "full_name": "Asha Citizen",
                 "mobile_number": "+15551234567",
-                "email": "asha@example.test",
+                "email": "asha@example.com",
             }
             self.client.post("/admin/users/create", data=valid)
             duplicate_email = dict(
@@ -690,7 +691,7 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
             duplicate_mobile = dict(
                 valid,
                 full_name="Third Citizen",
-                email="third@example.test",
+                email="third@example.com",
             )
             mobile_response = self.client.post(
                 "/admin/users/create",
@@ -705,6 +706,146 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
                 1,
             )
 
+    def test_staff_creation_accepts_and_normalizes_uppercase_email(self):
+        self.sign_in_as(self.admin_id)
+        with patch("app.routes.send_account_setup_email"):
+            response = self.client.post(
+                "/admin/users/create",
+                data={
+                    "role": "staff",
+                    "full_name": "Uppercase Staff",
+                    "mobile_number": "",
+                    "email": "STAFF@GMAIL.COM",
+                },
+                follow_redirects=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"was created", response.data)
+        with self.app.app_context():
+            account = User.query.filter_by(full_name="Uppercase Staff").one()
+            self.assertEqual(account.email, "staff@gmail.com")
+            self.assertEqual(account.role, "staff")
+
+    def test_staff_creation_normalizes_and_validates_email(self):
+        self.sign_in_as(self.admin_id)
+        valid_emails = [
+            "staff@gmail.com",
+            "OFFICER@GMAIL.COM",
+            "staff@yahoo.com",
+            "staff123@example.in",
+            "admin.department@company.co.in",
+            "first_last+team-1@example.com",
+        ]
+
+        with patch("app.routes.send_account_setup_email"):
+            for index, email in enumerate(valid_emails):
+                response = self.client.post(
+                    "/admin/users/create",
+                    data={
+                        "role": "staff",
+                        "full_name": f"Staff Member {index}",
+                        "mobile_number": "",
+                        "email": f"  {email}  ",
+                    },
+                    follow_redirects=True,
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(b"was created", response.data)
+
+            for index, email in enumerate(
+                ["staffgmail.com", "staff@", "", "staff..member@example.com"]
+            ):
+                response = self.client.post(
+                    "/admin/users/create",
+                    data={
+                        "role": "staff",
+                        "full_name": f"Invalid Staff {index}",
+                        "mobile_number": "",
+                        "email": email,
+                    },
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(b"Enter a valid email address.", response.data)
+                self.assertIn(b"Invalid Staff", response.data)
+
+            duplicate = self.client.post(
+                "/admin/users/create",
+                data={
+                    "role": "staff",
+                    "full_name": "Duplicate Staff",
+                    "mobile_number": "",
+                    "email": "sTaFf@GmAiL.cOm",
+                },
+            )
+            self.assertIn(
+                b"An account with that email address already exists.",
+                duplicate.data,
+            )
+
+        with self.app.app_context():
+            accounts = User.query.filter(
+                User.role == "staff",
+                User.email.in_(
+                    {email.strip().lower() for email in valid_emails}
+                ),
+            ).all()
+            self.assertEqual(len(accounts), len(valid_emails))
+            self.assertEqual(
+                {user.email for user in accounts},
+                {email.strip().lower() for email in valid_emails},
+            )
+            self.assertTrue(all(user.must_change_password for user in accounts))
+            self.assertTrue(all(user.password_hash != "" for user in accounts))
+
+    def test_created_staff_can_set_password_and_log_in_by_email(self):
+        self.sign_in_as(self.admin_id)
+        with patch("app.routes.send_account_setup_email") as send_email:
+            created = self.client.post(
+                "/admin/users/create",
+                data={
+                    "role": "staff",
+                    "full_name": "Email Login Staff",
+                    "mobile_number": "",
+                    "email": "  STAFF.Login@example.com ",
+                },
+            )
+        self.assertEqual(created.status_code, 302)
+        send_email.assert_called_once()
+        token = send_email.call_args.args[1]
+
+        setup = self.client.post(
+            f"/account/setup/{token}",
+            data={
+                "new_password": "secure-staff-password",
+                "confirm_password": "secure-staff-password",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(setup.status_code, 200)
+        self.client.get("/logout")
+
+        login = self.client.post(
+            "/login",
+            data={
+                "identifier": "  staff.login@EXAMPLE.COM ",
+                "password": "secure-staff-password",
+            },
+        )
+        self.assertEqual(login.status_code, 302)
+        self.assertEqual(login.headers["Location"], "/dashboard")
+        with self.app.app_context():
+            account = User.query.filter_by(
+                email="staff.login@example.com"
+            ).one()
+            self.assertEqual(account.role, "staff")
+            self.assertTrue(
+                check_password_hash(
+                    account.password_hash,
+                    "secure-staff-password",
+                )
+            )
+
     def test_admin_search_edit_and_role_protection(self):
         self.sign_in_as(self.admin_id)
         with patch("app.routes.send_account_setup_email"):
@@ -713,13 +854,13 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
                 data={
                     "full_name": "Searchable Citizen",
                     "mobile_number": "+15551234567",
-                    "email": "search@example.test",
+                    "email": "search@example.com",
                 },
             )
 
         with self.app.app_context():
             citizen_id = User.query.filter_by(
-                email="search@example.test"
+                email="search@example.com"
             ).one().id
         search = self.client.get("/admin/users?q=Searchable")
         self.assertEqual(search.status_code, 200)
@@ -729,7 +870,7 @@ class DigitalSuggestionBoxTests(unittest.TestCase):
             data={
                 "full_name": "Updated Citizen",
                 "mobile_number": "+15559876543",
-                "email": "updated@example.test",
+                "email": "updated@example.com",
                 "role": "citizen",
             },
             follow_redirects=True,

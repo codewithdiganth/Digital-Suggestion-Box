@@ -22,6 +22,7 @@ from werkzeug.security import (
 from werkzeug.utils import secure_filename
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
+from app.email_utils import normalize_email
 
 from app import db, csrf
 from app.account_service import (
@@ -589,6 +590,7 @@ def register_routes(app):
                 or_(
                     User.username == identifier,
                     db.func.lower(User.public_user_id) == identifier.lower(),
+                    db.func.lower(User.email) == identifier.lower(),
                 )
             ).first()
 
@@ -1061,58 +1063,105 @@ def register_routes(app):
     @app.route("/admin/users/create", methods=["GET", "POST"])
     @admin_required
     def create_user():
+        form_data = {
+            "full_name": "",
+            "mobile_number": "",
+            "email": "",
+            "role": "citizen",
+        }
+
         if request.method == "POST":
-            full_name = request.form.get("full_name", "").strip()
+            form_data = {
+                "full_name": request.form.get("full_name", "").strip(),
+                "mobile_number": request.form.get("mobile_number", ""),
+                "email": request.form.get("email", ""),
+                "role": request.form.get("role", "citizen").strip(),
+            }
+            full_name = form_data["full_name"]
             mobile_number = re.sub(
                 r"[\s().-]",
                 "",
-                request.form.get("mobile_number", ""),
+                form_data["mobile_number"],
             )
-            email = request.form.get("email", "").strip().lower()
+            email = normalize_email(form_data["email"])
+            role = form_data["role"]
 
             if not full_name or len(full_name) > 100:
                 flash("Enter a name between 1 and 100 characters.", "error")
-                return redirect(url_for("create_user"))
+                return render_template(
+                    "create_user.html",
+                    form_data=form_data,
+                    email_error=None,
+                )
 
-            if not re.fullmatch(r"\+?[1-9]\d{6,14}", mobile_number):
+            if role not in {"citizen", "staff"}:
+                flash("Choose a valid user role.", "error")
+                return render_template(
+                    "create_user.html",
+                    form_data=form_data,
+                    email_error=None,
+                )
+
+            if (role == "citizen" or mobile_number) and not re.fullmatch(
+                r"\+?[1-9]\d{6,14}", mobile_number
+            ):
                 flash(
                     "Enter a valid mobile number with 7 to 15 digits, "
                     "including country code when applicable.",
                     "error",
                 )
-                return redirect(url_for("create_user"))
+                return render_template(
+                    "create_user.html",
+                    form_data=form_data,
+                    email_error=None,
+                )
 
-            if (
-                len(email) > 254
-                or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email)
-            ):
-                flash("Enter a valid email address.", "error")
-                return redirect(url_for("create_user"))
+            if email is None:
+                return render_template(
+                    "create_user.html",
+                    form_data=form_data,
+                    email_error="Enter a valid email address.",
+                )
 
             try:
                 validate_email_configuration()
             except RuntimeError as error:
                 flash(str(error), "error")
-                return redirect(url_for("create_user"))
+                return render_template(
+                    "create_user.html",
+                    form_data=form_data,
+                    email_error=None,
+                )
 
             if User.query.filter(
                 db.func.lower(User.email) == email
             ).first():
-                flash("An account with that email address already exists.", "error")
-                return redirect(url_for("create_user"))
-            if User.query.filter_by(mobile_number=mobile_number).first():
+                return render_template(
+                    "create_user.html",
+                    form_data=form_data,
+                    email_error=(
+                        "An account with that email address already exists."
+                    ),
+                )
+            if mobile_number and User.query.filter_by(
+                mobile_number=mobile_number
+            ).first():
                 flash("An account with that mobile number already exists.", "error")
-                return redirect(url_for("create_user"))
+                return render_template(
+                    "create_user.html",
+                    form_data=form_data,
+                    email_error=None,
+                )
 
             public_user_id = create_public_user_id()
             user = User(
                 public_user_id=public_user_id,
                 username=public_user_id,
                 full_name=full_name,
-                mobile_number=mobile_number,
+                mobile_number=mobile_number or None,
                 email=email,
                 password_hash=generate_password_hash(secrets.token_urlsafe(32)),
-                role="citizen",
+                role=role,
                 is_active=True,
                 must_change_password=True,
             )
@@ -1125,8 +1174,7 @@ def register_routes(app):
                     user_id=current_user.id,
                     action="User Created",
                     details=(
-                        f"Created citizen account {public_user_id} "
-                        f"for {full_name}"
+                        f"Created {role} account {public_user_id} for {full_name}"
                     ),
                 ))
                 db.session.commit()
@@ -1136,7 +1184,11 @@ def register_routes(app):
                     "That mobile number or email address is already registered.",
                     "error",
                 )
-                return redirect(url_for("create_user"))
+                return render_template(
+                    "create_user.html",
+                    form_data=form_data,
+                    email_error=None,
+                )
 
             try:
                 send_account_setup_email(user, setup_token)
@@ -1159,7 +1211,11 @@ def register_routes(app):
                 )
             return redirect(url_for("manage_users"))
 
-        return render_template("create_user.html")
+        return render_template(
+            "create_user.html",
+            form_data=form_data,
+            email_error=None,
+        )
 
     @app.route("/admin/users/<int:user_id>/edit", methods=["GET", "POST"])
     @admin_required
@@ -1175,7 +1231,7 @@ def register_routes(app):
                 "",
                 request.form.get("mobile_number", ""),
             )
-            email = request.form.get("email", "").strip().lower()
+            email = normalize_email(request.form.get("email", ""))
             role = request.form.get("role", "").strip()
             allowed_roles = {"citizen", "staff", "admin"}
 
@@ -1185,10 +1241,7 @@ def register_routes(app):
             if not re.fullmatch(r"\+?[1-9]\d{6,14}", mobile_number):
                 flash("Enter a valid mobile number.", "error")
                 return redirect(url_for("edit_user", user_id=user.id))
-            if (
-                len(email) > 254
-                or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email)
-            ):
+            if email is None:
                 flash("Enter a valid email address.", "error")
                 return redirect(url_for("edit_user", user_id=user.id))
             if role not in allowed_roles:

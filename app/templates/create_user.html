@@ -1,15 +1,15 @@
 
 {% extends "base.html" %}
 
-{% block title %}Create User{% endblock %}
+{% block title %}Create Account{% endblock %}
 
 {% block content %}
 
-<section class="form-container">
+<section class="form-container create-user-container">
 
-    <h2>Create User</h2>
+    <h2>Create Account</h2>
 
-    <p>Create a citizen account. The user will receive a one-time email link to choose a password.</p>
+    <p>Create a citizen or staff account. The user will receive a secure, one-time email link to choose a password.</p>
 
     <form method="POST" action="{{ url_for('create_user') }}">
 
@@ -18,6 +18,12 @@
             name="csrf_token"
             value="{{ csrf_token() }}"
         >
+
+        <label for="role">Account Role</label>
+        <select id="role" name="role" required>
+            <option value="citizen" {% if form_data.role == "citizen" %}selected{% endif %}>Citizen</option>
+            <option value="staff" {% if form_data.role == "staff" %}selected{% endif %}>Staff</option>
+        </select>
 
         <label for="full_name">Full Name</label>
         <input
@@ -28,6 +34,7 @@
             maxlength="100"
             required
             autocomplete="name"
+            value="{{ form_data.full_name }}"
         >
 
         <label for="mobile_number">Mobile Number</label>
@@ -38,9 +45,10 @@
             placeholder="+15551234567"
             pattern="\+?[1-9][0-9\s().-]{5,24}"
             maxlength="30"
-            required
+            value="{{ form_data.mobile_number }}"
             autocomplete="tel"
         >
+        <small class="form-hint">Required for citizen accounts; optional for staff.</small>
 
         <label for="email">Email Address</label>
         <input
@@ -51,9 +59,13 @@
             placeholder="name@example.com"
             required
             autocomplete="email"
+            value="{{ form_data.email }}"
+            aria-describedby="email-error"
+            {% if email_error %}aria-invalid="true"{% endif %}
         >
+        <small id="email-error" class="field-error" role="alert">{% if email_error %}{{ email_error }}{% endif %}</small>
 
-        <button type="submit">Create User</button>
+        <button type="submit">Create Account</button>
 
     </form>
 
@@ -62,5 +74,15 @@
     </p>
 
 </section>
+
+<script>
+    const roleField = document.getElementById("role");
+    const mobileField = document.getElementById("mobile_number");
+    const updateMobileRequirement = () => {
+        mobileField.required = roleField.value === "citizen";
+    };
+    roleField.addEventListener("change", updateMobileRequirement);
+    updateMobileRequirement();
+</script>
 
 {% endblock %}
