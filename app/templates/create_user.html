@@ -9,7 +9,7 @@
 
     <h2>Create Account</h2>
 
-    <p>Create a citizen or staff account. The user will receive a secure, one-time email link to choose a password.</p>
+    <p>Create a citizen or staff account. A secure temporary password will be shown once after creation.</p>
 
     <form method="POST" action="{{ url_for('create_user') }}">
 
@@ -37,6 +37,19 @@
             value="{{ form_data.full_name }}"
         >
 
+        <label for="username">Username</label>
+        <input
+            type="text"
+            id="username"
+            name="username"
+            maxlength="80"
+            pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,79}"
+            autocomplete="username"
+            value="{{ form_data.username }}"
+            aria-describedby="username-hint"
+        >
+        <small id="username-hint" class="form-hint">Required for staff; citizen accounts receive a generated User ID.</small>
+
         <label for="mobile_number">Mobile Number</label>
         <input
             type="tel"
@@ -45,25 +58,11 @@
             placeholder="+15551234567"
             pattern="\+?[1-9][0-9\s().-]{5,24}"
             maxlength="30"
+            required
             value="{{ form_data.mobile_number }}"
             autocomplete="tel"
         >
-        <small class="form-hint">Required for citizen accounts; optional for staff.</small>
-
-        <label for="email">Email Address</label>
-        <input
-            type="email"
-            id="email"
-            name="email"
-            maxlength="254"
-            placeholder="name@example.com"
-            required
-            autocomplete="email"
-            value="{{ form_data.email }}"
-            aria-describedby="email-error"
-            {% if email_error %}aria-invalid="true"{% endif %}
-        >
-        <small id="email-error" class="field-error" role="alert">{% if email_error %}{{ email_error }}{% endif %}</small>
+        <small class="form-hint">Use an international format, for example +15551234567.</small>
 
         <button type="submit">Create Account</button>
 
@@ -77,12 +76,12 @@
 
 <script>
     const roleField = document.getElementById("role");
-    const mobileField = document.getElementById("mobile_number");
-    const updateMobileRequirement = () => {
-        mobileField.required = roleField.value === "citizen";
+    const usernameField = document.getElementById("username");
+    const updateUsernameRequirement = () => {
+        usernameField.required = roleField.value === "staff";
     };
-    roleField.addEventListener("change", updateMobileRequirement);
-    updateMobileRequirement();
+    roleField.addEventListener("change", updateUsernameRequirement);
+    updateUsernameRequirement();
 </script>
 
 {% endblock %}

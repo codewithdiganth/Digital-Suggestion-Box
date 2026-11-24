@@ -1,7 +1,6 @@
 
 from datetime import datetime, timedelta
 from functools import wraps
-import smtplib
 import secrets
 import os
 import re
@@ -22,16 +21,9 @@ from werkzeug.security import (
 from werkzeug.utils import secure_filename
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
-from app.email_utils import normalize_email
 
 from app import db, csrf
-from app.account_service import (
-    create_public_user_id,
-    get_user_for_setup_token,
-    issue_setup_token,
-    send_account_setup_email,
-    validate_email_configuration,
-)
+from app.account_service import create_public_user_id
 from app.ai_service import (
     check_ai_rate_limit,
     generate_chat_reply,
@@ -47,6 +39,21 @@ from app.models import Suggestion, User, ActivityLog, StatusHistory
 ALLOWED_PHOTO_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 login_attempts = {}
 login_attempts_lock = __import__("threading").Lock()
+
+
+def temporary_password_response(user, temporary_password, message):
+    response = make_response(render_template(
+        "temporary_password.html",
+        user=user,
+        temporary_password=temporary_password,
+        message=message,
+    ))
+    response.headers["Cache-Control"] = (
+        "no-store, no-cache, must-revalidate, max-age=0"
+    )
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 def generate_tracking_id():
@@ -571,7 +578,15 @@ def register_routes(app):
                 request.form.get("username", ""),
             ).strip()
             password = request.form.get("password", "")
-            login_key = f"login:{request.remote_addr}:{identifier.lower()}"
+            mobile_identifier = re.sub(r"[\s().-]", "", identifier)
+            rate_limit_identifier = (
+                mobile_identifier
+                if re.fullmatch(r"\+?[1-9]\d{6,14}", mobile_identifier)
+                else identifier.lower()
+            )
+            login_key = (
+                f"login:{request.remote_addr}:{rate_limit_identifier}"
+            )
             now = time.monotonic()
             with login_attempts_lock:
                 timestamps = [
@@ -590,9 +605,18 @@ def register_routes(app):
                 or_(
                     User.username == identifier,
                     db.func.lower(User.public_user_id) == identifier.lower(),
-                    db.func.lower(User.email) == identifier.lower(),
                 )
             ).first()
+            if user is None:
+                username_match = User.query.filter(
+                    db.func.lower(User.username) == identifier.lower()
+                ).first()
+                user = username_match
+            if user is None:
+                if re.fullmatch(r"\+?[1-9]\d{6,14}", mobile_identifier):
+                    user = User.query.filter_by(
+                        mobile_number=mobile_identifier
+                    ).first()
 
             if (
                 user
@@ -680,55 +704,6 @@ def register_routes(app):
 
         return render_template("change_password.html")
 
-    @app.route("/account/setup/<token>", methods=["GET", "POST"])
-    def setup_account_password(token):
-        user = get_user_for_setup_token(token)
-        if user is None:
-            flash(
-                "This password setup link is invalid, expired, or already used. "
-                "Ask an administrator to send a new one.",
-                "error",
-            )
-            response = make_response(redirect(url_for("login")))
-            response.headers["Cache-Control"] = "no-store"
-            response.headers["Referrer-Policy"] = "no-referrer"
-            return response
-
-        if request.method == "POST":
-            password = request.form.get("new_password", "")
-            confirm_password = request.form.get("confirm_password", "")
-            if len(password) < 8:
-                flash("Password must contain at least 8 characters.", "error")
-            elif len(password) > 128:
-                flash("Password must be 128 characters or fewer.", "error")
-            elif password != confirm_password:
-                flash("Passwords do not match.", "error")
-            else:
-                user.password_hash = generate_password_hash(password)
-                user.must_change_password = False
-                user.setup_token_nonce = None
-                user.failed_login_attempts = 0
-                user.locked_until = None
-                db.session.add(ActivityLog(
-                    user_id=user.id,
-                    action="Password Set",
-                    details=f"Password set for User ID: {user.public_user_id or user.username}",
-                ))
-                db.session.commit()
-                flash(
-                    "Password set successfully. You can now sign in with your User ID.",
-                    "success",
-                )
-                response = make_response(redirect(url_for("login")))
-                response.headers["Cache-Control"] = "no-store"
-                response.headers["Referrer-Policy"] = "no-referrer"
-                return response
-
-        response = make_response(render_template("setup_account_password.html"))
-        response.headers["Cache-Control"] = "no-store"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        return response
-
     # Force users with temporary passwords to change them first.
     @app.before_request
     def require_password_change():
@@ -738,7 +713,6 @@ def register_routes(app):
         ):
             allowed_endpoints = [
                 "change_password",
-                "setup_account_password",
                 "logout",
                 "static"
             ]
@@ -1044,7 +1018,6 @@ def register_routes(app):
             query = query.filter(or_(
                 User.full_name.ilike(pattern),
                 User.mobile_number.ilike(pattern),
-                User.email.ilike(pattern),
                 User.public_user_id.ilike(pattern),
                 User.username.ilike(pattern),
             ))
@@ -1065,25 +1038,25 @@ def register_routes(app):
     def create_user():
         form_data = {
             "full_name": "",
+            "username": "",
             "mobile_number": "",
-            "email": "",
             "role": "citizen",
         }
 
         if request.method == "POST":
             form_data = {
                 "full_name": request.form.get("full_name", "").strip(),
+                "username": request.form.get("username", "").strip(),
                 "mobile_number": request.form.get("mobile_number", ""),
-                "email": request.form.get("email", ""),
                 "role": request.form.get("role", "citizen").strip(),
             }
             full_name = form_data["full_name"]
+            username = form_data["username"]
             mobile_number = re.sub(
                 r"[\s().-]",
                 "",
                 form_data["mobile_number"],
             )
-            email = normalize_email(form_data["email"])
             role = form_data["role"]
 
             if not full_name or len(full_name) > 100:
@@ -1091,7 +1064,6 @@ def register_routes(app):
                 return render_template(
                     "create_user.html",
                     form_data=form_data,
-                    email_error=None,
                 )
 
             if role not in {"citizen", "staff"}:
@@ -1099,10 +1071,9 @@ def register_routes(app):
                 return render_template(
                     "create_user.html",
                     form_data=form_data,
-                    email_error=None,
                 )
 
-            if (role == "citizen" or mobile_number) and not re.fullmatch(
+            if not re.fullmatch(
                 r"\+?[1-9]\d{6,14}", mobile_number
             ):
                 flash(
@@ -1113,54 +1084,51 @@ def register_routes(app):
                 return render_template(
                     "create_user.html",
                     form_data=form_data,
-                    email_error=None,
                 )
 
-            if email is None:
+            if role == "staff" and not re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", username
+            ):
+                flash(
+                    "Enter a username using 1 to 80 letters, numbers, dots, "
+                    "underscores, or hyphens; it must start with a letter "
+                    "or number.",
+                    "error",
+                )
                 return render_template(
                     "create_user.html",
                     form_data=form_data,
-                    email_error="Enter a valid email address.",
                 )
 
-            try:
-                validate_email_configuration()
-            except RuntimeError as error:
-                flash(str(error), "error")
-                return render_template(
-                    "create_user.html",
-                    form_data=form_data,
-                    email_error=None,
+            if role == "staff" and User.query.filter(
+                or_(
+                    db.func.lower(User.username) == username.lower(),
+                    db.func.lower(User.public_user_id) == username.lower(),
+                    User.mobile_number == username,
                 )
-
-            if User.query.filter(
-                db.func.lower(User.email) == email
             ).first():
+                flash("That username is already registered.", "error")
                 return render_template(
                     "create_user.html",
                     form_data=form_data,
-                    email_error=(
-                        "An account with that email address already exists."
-                    ),
                 )
-            if mobile_number and User.query.filter_by(
-                mobile_number=mobile_number
-            ).first():
+
+            if User.query.filter_by(mobile_number=mobile_number).first():
                 flash("An account with that mobile number already exists.", "error")
                 return render_template(
                     "create_user.html",
                     form_data=form_data,
-                    email_error=None,
                 )
 
-            public_user_id = create_public_user_id()
+            public_user_id = create_public_user_id() if role == "citizen" else None
+            username = public_user_id or username.lower()
+            temporary_password = secrets.token_urlsafe(18)
             user = User(
                 public_user_id=public_user_id,
-                username=public_user_id,
+                username=username,
                 full_name=full_name,
-                mobile_number=mobile_number or None,
-                email=email,
-                password_hash=generate_password_hash(secrets.token_urlsafe(32)),
+                mobile_number=mobile_number,
+                password_hash=generate_password_hash(temporary_password),
                 role=role,
                 is_active=True,
                 must_change_password=True,
@@ -1169,52 +1137,35 @@ def register_routes(app):
             try:
                 db.session.add(user)
                 db.session.flush()
-                setup_token = issue_setup_token(user)
                 db.session.add(ActivityLog(
                     user_id=current_user.id,
                     action="User Created",
                     details=(
-                        f"Created {role} account {public_user_id} for {full_name}"
+                        f"Created {role} account {username} for {full_name}"
                     ),
                 ))
                 db.session.commit()
             except IntegrityError:
                 db.session.rollback()
                 flash(
-                    "That mobile number or email address is already registered.",
+                    "That username or mobile number is already registered.",
                     "error",
                 )
                 return render_template(
                     "create_user.html",
                     form_data=form_data,
-                    email_error=None,
                 )
 
-            try:
-                send_account_setup_email(user, setup_token)
-            except (RuntimeError, OSError, smtplib.SMTPException):
-                current_app.logger.exception(
-                    "Could not send account setup email for User ID %s",
-                    public_user_id,
-                )
-                flash(
-                    "The account was created, but the welcome email could not "
-                    "be sent. Correct the email configuration and use Reset "
-                    "Password to send a new setup link.",
-                    "error",
-                )
-            else:
-                flash(
-                    f"User {public_user_id} was created. A password setup link "
-                    f"was sent to {email}.",
-                    "success",
-                )
-            return redirect(url_for("manage_users"))
+            return temporary_password_response(
+                user,
+                temporary_password,
+                "Account created successfully. Share this temporary password "
+                "with the user through a secure channel. It will not be shown again.",
+            )
 
         return render_template(
             "create_user.html",
             form_data=form_data,
-            email_error=None,
         )
 
     @app.route("/admin/users/<int:user_id>/edit", methods=["GET", "POST"])
@@ -1226,23 +1177,25 @@ def register_routes(app):
 
         if request.method == "POST":
             full_name = request.form.get("full_name", "").strip()
+            username = request.form.get("username", "").strip()
             mobile_number = re.sub(
                 r"[\s().-]",
                 "",
                 request.form.get("mobile_number", ""),
             )
-            email = normalize_email(request.form.get("email", ""))
             role = request.form.get("role", "").strip()
             allowed_roles = {"citizen", "staff", "admin"}
 
             if not full_name or len(full_name) > 100:
                 flash("Enter a name between 1 and 100 characters.", "error")
                 return redirect(url_for("edit_user", user_id=user.id))
+            if not re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", username
+            ):
+                flash("Enter a valid username.", "error")
+                return redirect(url_for("edit_user", user_id=user.id))
             if not re.fullmatch(r"\+?[1-9]\d{6,14}", mobile_number):
                 flash("Enter a valid mobile number.", "error")
-                return redirect(url_for("edit_user", user_id=user.id))
-            if email is None:
-                flash("Enter a valid email address.", "error")
                 return redirect(url_for("edit_user", user_id=user.id))
             if role not in allowed_roles:
                 flash("Choose a valid user role.", "error")
@@ -1262,25 +1215,23 @@ def register_routes(app):
             duplicate_contact = User.query.filter(
                 User.id != user.id,
                 or_(
-                    db.func.lower(User.email) == email,
+                    db.func.lower(User.username) == username.lower(),
+                    db.func.lower(User.public_user_id) == username.lower(),
                     User.mobile_number == mobile_number,
                 ),
             ).first()
             if duplicate_contact:
                 flash(
-                    "That email address or mobile number belongs to another account.",
+                    "That username or mobile number belongs to another account.",
                     "error",
                 )
                 return redirect(url_for("edit_user", user_id=user.id))
 
             old_role = user.role
-            old_email = user.email
             user.full_name = full_name
+            user.username = username
             user.mobile_number = mobile_number
-            user.email = email
             user.role = role
-            if old_email and old_email.lower() != email:
-                user.setup_token_nonce = None
             try:
                 db.session.add(ActivityLog(
                     user_id=current_user.id,
@@ -1293,7 +1244,7 @@ def register_routes(app):
                 db.session.commit()
             except IntegrityError:
                 db.session.rollback()
-                flash("The contact details are already registered.", "error")
+                flash("The mobile number is already registered.", "error")
                 return redirect(url_for("edit_user", user_id=user.id))
 
             if old_role != role:
@@ -1343,8 +1294,6 @@ def register_routes(app):
                 return redirect(url_for("manage_users"))
 
         user.is_active = not user.is_active
-        if not user.is_active:
-            user.setup_token_nonce = None
 
         log = ActivityLog(
             user_id=current_user.id,
@@ -1374,57 +1323,27 @@ def register_routes(app):
             abort(404)
 
         if not user.is_active:
-            flash("Reactivate this account before sending a password setup link.", "error")
-            return redirect(url_for("manage_users"))
-        if not user.email:
-            flash(
-                "This account has no email address. Add one before resetting its password.",
-                "error",
-            )
-            return redirect(url_for("edit_user", user_id=user.id))
-        try:
-            validate_email_configuration()
-        except RuntimeError as error:
-            flash(str(error), "error")
+            flash("Reactivate this account before resetting its password.", "error")
             return redirect(url_for("manage_users"))
 
-        setup_token = issue_setup_token(user)
+        temporary_password = secrets.token_urlsafe(18)
+        user.password_hash = generate_password_hash(temporary_password)
         user.must_change_password = True
+        user.setup_token_nonce = None
         user.failed_login_attempts = 0
         user.locked_until = None
         db.session.add(ActivityLog(
             user_id=current_user.id,
             action="Password Reset",
             details=(
-                f"Password setup link sent for "
+                f"Temporary password generated for "
                 f"{user.public_user_id or user.username}"
             ),
         ))
         db.session.commit()
-
-        try:
-            send_account_setup_email(user, setup_token)
-        except (RuntimeError, OSError, smtplib.SMTPException):
-            current_app.logger.exception(
-                "Could not send password setup email for User ID %s",
-                user.public_user_id or user.username,
-            )
-            flash(
-                "The reset link could not be emailed. Check the email "
-                "configuration and send the reset again.",
-                "error",
-            )
-        else:
-            flash("A password setup link was sent to the user's email.", "success")
-        return redirect(url_for("manage_users"))
-
-    # ---------------- SHOW TEMPORARY PASSWORD ----------------
-
-    @app.route("/admin/users/reset-password-result")
-    @admin_required
-    def show_reset_password():
-        flash(
-            "Password resets now use a secure setup link sent to the user's email.",
-            "success",
+        return temporary_password_response(
+            user,
+            temporary_password,
+            "Password reset successfully. Share this temporary password with "
+            "the user through a secure channel. It will not be shown again.",
         )
-        return redirect(url_for("manage_users"))

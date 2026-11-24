@@ -21,6 +21,17 @@
             required
         >
 
+        <label for="username">Username</label>
+        <input
+            type="text"
+            id="username"
+            name="username"
+            maxlength="80"
+            autocomplete="username"
+            value="{{ user.username }}"
+            required
+        >
+
         <label for="mobile_number">Mobile Number</label>
         <input
             type="tel"
@@ -30,17 +41,6 @@
             pattern="\+?[1-9][0-9\s().-]{5,24}"
             autocomplete="tel"
             value="{{ user.mobile_number or '' }}"
-            required
-        >
-
-        <label for="email">Email Address</label>
-        <input
-            type="email"
-            id="email"
-            name="email"
-            maxlength="254"
-            autocomplete="email"
-            value="{{ user.email or '' }}"
             required
         >
 

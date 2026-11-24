@@ -52,6 +52,7 @@ class User(UserMixin, db.Model):
 
     full_name = db.Column(db.String(100), nullable=True)
     mobile_number = db.Column(db.String(16), unique=True, nullable=True)
+    # Kept for existing records; authentication and account workflows do not use email.
     email = db.Column(db.String(254), unique=True, nullable=True)
 
     password_hash = db.Column(db.String(255), nullable=False)
@@ -77,6 +78,7 @@ class User(UserMixin, db.Model):
     )
 
     locked_until = db.Column(db.DateTime, nullable=True)
+    # Legacy column retained to preserve the existing database schema.
     setup_token_nonce = db.Column(db.String(64), nullable=True)
 
     created_at = db.Column(

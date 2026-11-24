@@ -14,7 +14,7 @@
     <p><a class="btn btn-primary" href="{{ url_for('create_user') }}">Create Account</a></p>
 
     <form method="GET" action="{{ url_for('manage_users') }}" role="search">
-        <label for="user-search">Search by name, mobile, email, or User ID</label>
+        <label for="user-search">Search by name, username, mobile, or User ID</label>
         <input
             type="search"
             id="user-search"
@@ -34,9 +34,9 @@
         <thead>
             <tr>
                 <th>User ID</th>
+                <th>Username</th>
                 <th>Name</th>
                 <th>Mobile</th>
-                <th>Email</th>
                 <th>Role</th>
                 <th>Status</th>
                 <th>Created</th>
@@ -48,9 +48,9 @@
             {% for user in users %}
             <tr>
                 <td>{{ user.public_user_id or user.username }}</td>
+                <td>{{ user.username }}</td>
                 <td>{{ user.full_name or user.username }}</td>
                 <td>{{ user.mobile_number or "—" }}</td>
-                <td>{{ user.email or "—" }}</td>
                 <td>{{ user.role }}</td>
 
                 <td>
@@ -90,7 +90,7 @@
                                name="csrf_token"
                                value="{{ csrf_token() }}">
 
-                        <button type="submit">Email Password Setup Link</button>
+                        <button type="submit">Reset Password</button>
                     </form>
 
                     {% else %}
