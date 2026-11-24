@@ -60,7 +60,7 @@ Run:
 python -m unittest discover -s tests -v
 ```
 
-Current automated coverage includes public pages, citizen submission, tracking, AI fallbacks and validation, role restrictions, direct staff POST rejection, dashboard totals, password changes, status updates, activity logs, user deactivation, chat reset and status history.
+Current automated coverage includes public pages, citizen submission, tracking, AI fallbacks and validation, role restrictions, direct staff POST rejection, dashboard totals, username/mobile login, temporary-password account creation and reset, mandatory password changes, status updates, activity logs, user deactivation, chat reset and status history.
 
 ## 7. ER diagram
 
@@ -72,14 +72,14 @@ public_user_id UNIQUE
 username
 full_name
 mobile_number UNIQUE
-email UNIQUE
+email UNIQUE (legacy; retained but unused)
 password_hash
 role
 is_active
 must_change_password
 failed_login_attempts
 locked_until
-setup_token_nonce
+setup_token_nonce (legacy; retained but unused)
 created_at
 
 SUGGESTION
@@ -116,6 +116,8 @@ remark
 changed_by FK -> USER.id
 created_at
 ```
+
+The legacy `email` and `setup_token_nonce` columns remain in SQLite to preserve existing records and avoid a destructive migration. They are no longer used by account creation, login, or password reset.
 
 ## 8. Presentation outline
 
